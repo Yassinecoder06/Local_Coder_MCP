@@ -38,6 +38,39 @@ export function pageHeader(kicker, title, subtitle, action = '') {
   </div>`;
 }
 
+export function integrationsCard(integrations) {
+  if (!integrations || typeof integrations !== 'object') return '';
+
+  const rows = [
+    ['herdr', 'herdr'],
+    ['browser', 'Browser checks'],
+  ].flatMap(([key, label]) => {
+    const integration = integrations[key];
+    if (!integration || typeof integration.available !== 'boolean') return [];
+
+    const available = integration.available;
+    const detail = integration.detail || (available ? 'Available.' : 'Unavailable.');
+    const setup = key === 'herdr' && !available
+      ? '<p class="integration-setup">Run ./scripts/setup.sh to enable</p>'
+      : '';
+    return [`<li class="integration-row">
+      <span class="integration-dot ${available ? 'available' : 'unavailable'}"
+        aria-hidden="true"></span>
+      <div class="integration-copy"><strong>${escapeHtml(label)}</strong>
+        <p>${escapeHtml(detail)}</p>${setup}</div>
+      <span class="integration-state ${available ? 'available' : 'unavailable'}">
+        ${available ? 'Available' : 'Unavailable'}</span>
+    </li>`];
+  });
+
+  if (!rows.length) return '';
+  return `<section class="panel integrations-card" aria-label="Integrations">
+    <div class="integrations-heading"><p class="eyebrow">INTEGRATIONS</p>
+      <h2>Local capabilities</h2></div>
+    <ul class="integration-list">${rows.join('')}</ul>
+  </section>`;
+}
+
 export function duration(seconds) {
   const value = Number(seconds) || 0;
   if (value < 60) return `${Math.floor(value)}s`;

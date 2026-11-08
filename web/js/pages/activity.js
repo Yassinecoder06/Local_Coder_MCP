@@ -57,9 +57,32 @@ function drawActivity(view) {
       ${clientGlyph(entry.client)}</span>${escapeHtml(entry.client || 'Client')}</span></td>
     <td><code>${escapeHtml(entry.tool)}</code></td>
     <td class="args-cell" title="${escapeHtml(entry.args || '')}">${escapeHtml(entry.args || '—')}</td>
-    <td><span class="result ${entry.ok ? 'result-ok' : 'result-error'}">${entry.ok ? '● OK' : '● Error'}</span></td>
+    <td class="activity-result-cell"><span class="result ${entry.ok ? 'result-ok' : 'result-error'}">
+      ${entry.ok ? '● OK' : '● Error'}</span>${resultSummaryChip(entry)}</td>
     <td>${Number(entry.ms) || 0} ms</td><td title="${escapeHtml(entry.ts)}">${timeAgo(entry.ts)}</td>
   </tr>`).join('');
   view.querySelector('#activity-empty').hidden = activity.length > 0;
   view.querySelector('#activity-count').textContent = `${activity.length} recent events`;
+}
+
+function resultSummaryChip(entry) {
+  const summary = String(entry.summary || '').trim();
+  if (!summary) return '';
+
+  const tool = String(entry.tool || '').toLowerCase();
+  const isEditDiagnostics = tool === 'edit_files'
+    && /diagnostic|\b\d+\s+errors?\b|\b\d+\s+warnings?\b/i.test(summary);
+  const isVerifiedRun = tool === 'run'
+    && /\bverify\b/i.test(`${entry.args || ''} ${summary}`);
+  if (!isEditDiagnostics && !isVerifiedRun && tool !== 'browser_check') return '';
+
+  const label = summary
+    .replace(/^(?:edit_files|run|browser_check)\s*:\s*/i, '')
+    .replace(/^diagnostics?\s*:\s*/i, '')
+    .replace(/^verify\s*:\s*/i, '')
+    .trim();
+  if (!label) return '';
+
+  return `<span class="activity-summary-chip" title="${escapeHtml(summary)}">
+    ${escapeHtml(label)}</span>`;
 }

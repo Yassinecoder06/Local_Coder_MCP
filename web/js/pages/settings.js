@@ -1,5 +1,11 @@
 import { request, send } from '../api.js';
-import { escapeHtml, pageHeader, toast, trapDialogFocus } from '../ui.js';
+import {
+  escapeHtml,
+  integrationsCard,
+  pageHeader,
+  toast,
+  trapDialogFocus,
+} from '../ui.js';
 
 let settings = {};
 let statusData = {};
@@ -22,6 +28,7 @@ export async function renderSettings(view, status) {
     'Tune the default behavior of your Local Coder server.',
   )}
   <div class="settings-stack">
+    ${integrationsCard(status.integrations)}
     <section class="panel setting-section"><div class="setting-copy"><h2>Approval mode</h2>
       <p>Choose how much confirmation is needed before actions run.</p></div>
       <div class="radio-cards approval-options">

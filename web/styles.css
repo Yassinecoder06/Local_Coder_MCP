@@ -429,6 +429,87 @@ textarea {
   font-weight: 680;
 }
 
+.integrations-card {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+  padding: 14px 18px;
+}
+
+.integrations-heading .eyebrow {
+  margin-bottom: 4px;
+}
+
+.integrations-heading h2 {
+  font-size: 13px;
+}
+
+.integration-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.integration-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.integration-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.integration-dot.available {
+  background: var(--green);
+  box-shadow: 0 0 0 3px var(--green-bg);
+}
+
+.integration-dot.unavailable {
+  background: var(--amber);
+  box-shadow: 0 0 0 3px var(--amber-bg);
+}
+
+.integration-copy {
+  min-width: 0;
+}
+
+.integration-copy strong {
+  font-size: 11px;
+}
+
+.integration-copy p {
+  margin: 1px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.integration-copy .integration-setup {
+  color: var(--amber);
+}
+
+.integration-state {
+  font-size: 9px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.integration-state.available {
+  color: var(--green);
+}
+
+.integration-state.unavailable {
+  color: var(--amber);
+}
+
 .muted {
   color: var(--muted);
   font-size: 12px;
@@ -1328,6 +1409,26 @@ textarea {
   color: var(--red);
 }
 
+.activity-result-cell {
+  white-space: normal;
+}
+
+.activity-summary-chip {
+  display: inline-block;
+  max-width: 170px;
+  overflow: hidden;
+  margin-left: 5px;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
 .empty-state.compact {
   padding: 32px;
 }
@@ -1668,6 +1769,11 @@ textarea {
   .setting-section {
     grid-template-columns: 1fr;
     gap: 14px;
+  }
+
+  .integrations-card {
+    grid-template-columns: 1fr;
+    gap: 10px;
   }
 
   .error-banner {
