@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Local Coder · Admin</title>
+  <link rel="icon" href="/favicon.ico">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar" aria-label="Main navigation">
+      <a class="brand" href="#connect" aria-label="Local Coder home"><span class="brand-mark">⌘</span><span>Local Coder<small>ADMIN CONSOLE</small></span></a>
+      <nav id="navigation">
+        <a href="#connect" data-route="connect"><span>◉</span> Connect</a>
+        <a href="#skills" data-route="skills"><span>✳</span> Skills</a>
+        <a href="#commands" data-route="commands"><span>⌁</span> Commands</a>
+        <a href="#tools" data-route="tools"><span>⊞</span> Tools</a>
+        <a href="#activity" data-route="activity"><span>↗</span> Activity</a>
+        <a href="#settings" data-route="settings"><span>⚙</span> Settings</a>
+      </nav>
+      <div class="sidebar-bottom"><span class="dot" id="connection-dot"></span><span id="connection-label">Connecting…</span><button class="icon-button theme-button" id="theme-toggle" title="Toggle theme" aria-label="Toggle color theme">◐</button></div>
+    </aside>
+    <main class="main-area">
+      <header class="topbar"><button class="icon-button mobile-menu" id="menu-toggle" aria-label="Open navigation">☰</button><div class="crumb" id="breadcrumb">Connect</div><a class="external-link" href="http://localhost:8787/health" target="_blank" rel="noreferrer">Server health ↗</a></header>
+      <div id="error-banner" class="error-banner" role="alert" hidden><strong>Can’t reach the admin API</strong><span id="error-message">Check that Local Coder is running.</span><button id="retry-button" class="button button-small">Retry</button></div>
+      <section id="view" class="view" aria-live="polite"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-card"></div></section>
+    </main>
+  </div>
+  <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <dialog id="skill-dialog" class="dialog"><form id="skill-form" method="dialog"><div class="dialog-header"><div><p class="eyebrow">SKILL LIBRARY</p><h2>Add a skill</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="Close">×</button></div>
+    <div class="tabs" role="tablist"><button type="button" class="tab active" role="tab" data-tab="write">Write</button><button type="button" class="tab" role="tab" data-tab="paste">Paste / Upload</button><button type="button" class="tab" role="tab" data-tab="path">Import from path</button></div>
+    <div class="tab-panel" data-panel="write"><label>Name<input name="name" placeholder="my-skill" pattern="[a-z0-9][a-z0-9-]{0,63}" required></label><label>Description<input name="description" placeholder="When should the model use this skill?" required></label><label>Markdown body<textarea name="body" rows="9" placeholder="Describe the workflow, guidance, and examples…" required></textarea></label><button class="button button-primary" type="submit">Save skill</button></div>
+    <div class="tab-panel" data-panel="paste" hidden><label>SKILL.md<textarea id="skill-markdown" rows="12" placeholder="---&#10;name: my-skill&#10;description: ...&#10;---&#10;&#10;Skill instructions…"></textarea></label><label class="dropzone" id="file-drop">Drop reference files here or <span class="linklike">choose files<input id="skill-files" type="file" multiple hidden></span><small>Text files are imported with the skill.</small></label><div id="file-list" class="file-list"></div><button class="button button-primary" id="import-markdown" type="button">Import skill</button></div>
+    <div class="tab-panel" data-panel="path" hidden><p class="muted">Import a skill folder visible to the server. It must contain a SKILL.md file.</p><label>Absolute folder path<input id="skill-path" placeholder="/workspace/.agents/skills/my-skill"></label><button class="button button-primary" id="import-path" type="button">Import folder</button></div>
+  </form></dialog>
+</body>
+</html>
