@@ -14,6 +14,7 @@ import { getSettings, updateSettings } from "../core/settings.js";
 import { invalidateAllOAuthTokens } from "../http/oauth-store.js";
 import type { SessionManager } from "../http/session-manager.js";
 import { getLocalBaseUrl, resolvePublicUrl } from "../http/public-url.js";
+import { detectIntegrations } from "../core/integrations.js";
 import toolModules from "../tools/index.js";
 import { ESSENTIAL_TOOLS } from "../mcp/server.js";
 
@@ -72,6 +73,7 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
     const localUrl = getLocalBaseUrl(deps.config);
     const settings = getSettings();
     const effectiveBase = publicUrl || localUrl;
+    const integrations = await detectIntegrations();
 
     res.json({
       version: deps.config.version,
@@ -83,6 +85,7 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
       workspaceRoots: deps.config.workspaceRoots,
       defaultWorkspace: deps.config.defaultWorkspace,
       lastWorkspace: settings.lastWorkspace,
+      integrations,
       endpoints: {
         local: localUrl,
         public: publicUrl,
