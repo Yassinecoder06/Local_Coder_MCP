@@ -30,6 +30,7 @@ export const ESSENTIAL_TOOLS = new Set([
   "command_run",
   "fetch_url",
   "status",
+  "browser_check",
 ]);
 
 function summarizeArgs(args: unknown): string {
