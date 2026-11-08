@@ -1,3 +1,4 @@
+import { detectIntegrations } from "../core/integrations.js";
 import { z } from "zod";
 import { defineTool, type ToolModule } from "../core/types.js";
 import { ok, fail } from "../core/result.js";
@@ -115,7 +116,7 @@ export const fetchUrlTool = defineTool({
 export const statusTool = defineTool({
   name: "status",
   title: "Server Status",
-  description: "Get server status including version, uptime, auth mode, tool profile, and active workspace paths.",
+  description: "Get server status: version, uptime, auth and approval mode, active workspace, and which integrations (herdr, browser) are available.",
   group: "system",
   risk: "read",
   input: {},
@@ -123,6 +124,7 @@ export const statusTool = defineTool({
     try {
       const uptimeSec = Math.floor(process.uptime());
       const active = ctx.workspace.active();
+      const integrations = await detectIntegrations();
       return ok("status", `Local Coder MCP v${ctx.config.version} (uptime: ${uptimeSec}s)`, {
         version: ctx.config.version,
         uptime_sec: uptimeSec,
@@ -133,6 +135,7 @@ export const statusTool = defineTool({
         active_workspace_abs: active,
         workspace_roots: ctx.workspace.roots,
         data_dir: ctx.config.dataDir,
+        integrations,
       });
     } catch (err) {
       return fail("status", err);
