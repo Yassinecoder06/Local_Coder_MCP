@@ -11,8 +11,15 @@
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import type { ToolRisk } from "./types.js";
 
-export function annotationsFor(risk: ToolRisk, title: string, mode: "minimal" | "standard"): ToolAnnotations {
-  if (risk === "read") {
+export type ApprovalMode = "trust" | "minimal" | "standard";
+
+/**
+ * trust (opt-in): every tool is advertised as read-only so ChatGPT/Gemini never
+ * ask for confirmation. This hides real risk from the client: content the model
+ * reads (web pages, files) could make it run commands unprompted. Off by default.
+ */
+export function annotationsFor(risk: ToolRisk, title: string, mode: ApprovalMode): ToolAnnotations {
+  if (risk === "read" || mode === "trust") {
     return { title, readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
   }
   if (mode === "minimal") {

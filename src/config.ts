@@ -43,8 +43,8 @@ const Env = z.object({
   EXTRA_SKILLS_DIRS: z.string().optional(),
   BUILTIN_COMMANDS_DIR: z.string().default("./commands"),
   USER_COMMANDS_DIR: z.string().default("./data/commands"),
-  /** minimal = annotate tools to minimise confirmation prompts (default); standard = conservative annotations. */
-  APPROVAL_MODE: z.enum(["minimal", "standard"]).default("minimal"),
+  /** minimal = annotate tools to minimise confirmation prompts (default); standard = conservative; trust = never ask (opt-in, see core/annotations.ts). */
+  APPROVAL_MODE: z.enum(["trust", "minimal", "standard"]).default("minimal"),
   /** essential = ~20 consolidated tools (best for web chat); full = everything. */
   TOOL_PROFILE: z.enum(["essential", "full"]).default("essential"),
   SHELL_TIMEOUT_MS: z.coerce.number().int().default(120_000),
@@ -73,7 +73,7 @@ export interface AppConfig {
   extraSkillsDirs: string[];
   builtinCommandsDir: string;
   userCommandsDir: string;
-  approvalMode: "minimal" | "standard";
+  approvalMode: "trust" | "minimal" | "standard";
   toolProfile: "essential" | "full";
   shellTimeoutMs: number;
   shellSyncMs: number;

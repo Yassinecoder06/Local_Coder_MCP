@@ -8,7 +8,7 @@ import path from "node:path";
 export interface Settings {
   disabledTools: string[];
   disabledSkills: string[];
-  approvalMode?: "minimal" | "standard";
+  approvalMode?: "trust" | "minimal" | "standard";
   toolProfile?: "essential" | "full";
 }
 
