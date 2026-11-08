@@ -19,7 +19,9 @@ export async function request(path, options = {}) {
     } catch {
       // Use the status message when the server did not return JSON.
     }
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
   }
 
   return response.status === 204 ? null : response.json();

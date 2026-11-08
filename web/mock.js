@@ -173,6 +173,9 @@ export async function request(path, options = {}) {
   const body = options.body ? JSON.parse(options.body) : {};
 
   if (path === '/status') return clone(status);
+  if (path === '/health') {
+    return { status: 'ok', uptimeSec: status.uptimeSec, mcpReachable: true };
+  }
   if (path === '/connect') return clone(connect);
   if (path === '/token/rotate' && method === 'POST') {
     connect.token = `lc_demo_${Math.random().toString(36).slice(2, 12)}`;
