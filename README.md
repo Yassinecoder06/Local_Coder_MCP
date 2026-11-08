@@ -35,7 +35,7 @@ Gemini custom apps require an eligible plan/account that offers the feature. Goo
 1. Open [gemini.google.com](https://gemini.google.com).
 2. Click **Settings → Connected Apps**. If it is missing, first open **Personal Intelligence → Connected Apps**.
 3. Under **Custom apps**, choose **Add a custom app** (or enter the MCP URL in the add-app field), then paste the MCP URL from the admin page.
-4. Click **Next** and complete the OAuth prompt using the Local Coder access key.
+4. Click **Next**. Leave **OAuth Client ID** and **OAuth Client secret** empty because Local Coder self-registers the client. When prompted to sign in, use the access key from the admin **Connect** page.
 5. In a prompt, type `@` and select the custom app to use it.
 
 See [Google's custom app guide](https://support.google.com/gemini/answer/17209137) for current eligibility and availability.
@@ -50,11 +50,19 @@ docker compose --profile tunnel up -d
 
 The server discovers the Quick Tunnel URL automatically from Cloudflare's tunnel metrics endpoint. It appears in the admin UI once the tunnel is up; no manual `PUBLIC_URL` setting is needed. Quick Tunnel URLs change when the tunnel is recreated. For a stable hostname, create a Cloudflare named tunnel, put its token in `CLOUDFLARE_TUNNEL_TOKEN`, then start it with `docker compose --profile named-tunnel up -d named-tunnel` and set `PUBLIC_URL` to its configured hostname. Tailscale Funnel and ngrok are alternatives; point either at the MCP port `8787` and set `PUBLIC_URL` to its HTTPS URL.
 
+### Already have your own domain or Cloudflare tunnel?
+
+Point your existing tunnel or reverse proxy at the host port set by `PORT` in `.env`. For example, `PORT=3000` publishes host port `3000` and passes `HOST_PORT=3000` to the server. Set `PUBLIC_URL=https://your-domain`. You do not need the `tunnel` profile. The server always listens on port `8787` inside the container; `PORT` only selects the host port that Compose publishes. For a tunnel running in a separate container on this Compose network, target `http://mcp:8787` instead.
+
 The admin port remains bound to `127.0.0.1` and is never sent through the tunnel.
 
 ## Fewer permission prompts
 
-`APPROVAL_MODE=minimal` is the default. Read-only tools never ask for confirmation; write and execution tools carry risk annotations so the client can decide when to confirm. Use batch tools such as `apply_patch` for related edits. In ChatGPT, choose **Always allow** once per tool when you trust its actions.
+Choose an approval mode in `.env` or switch it live in **Admin → Settings**:
+
+- **Trust** never asks for confirmation. It marks every tool as read-only to the client. Use this only if you trust the prompts and content in your workspace: text the AI reads could instruct it to run commands without asking.
+- **Minimal** is the default. Read-only tools never ask. Only four tools ask once each: `edit_files`, `run`, `git_write`, and `skill_save`. In ChatGPT or Gemini, click **Always allow** once per tool.
+- **Standard** uses conservative annotations, so clients may ask for confirmation each time a mutating or command tool runs.
 
 ## Skills
 
@@ -69,11 +77,11 @@ description: Check a project before release.
 Inspect the working tree, run the project's checks, and summarize any release blockers.
 ```
 
-Built-in skills: `herdr`, `ui-design`, `code-review`, `git-workflow`, and `skill-authoring`. Host skills can optionally be mounted with `compose.host-tools.yaml` (see [Docker setup](docs/SETUP-Docker.md)).
+Built-in skills: `herdr`, `ui-design`, `code-review`, `git-workflow`, `skill-authoring`, and `docker-dev`. Host skills can optionally be mounted with `compose.host-tools.yaml` (see [Docker setup](docs/SETUP-Docker.md)).
 
 ## Commands
 
-Built-ins: `/review`, `/test`, `/fix`, `/commit`, `/explain`, `/plan`, `/scaffold`, `/docs`, `/refactor`, and `/deps`. Add user commands in `data/commands/` or through the admin UI; each command is a Markdown file with a name, description, optional arguments, and prompt template.
+Built-ins: `/review`, `/test`, `/fix`, `/commit`, `/explain`, `/plan`, `/scaffold`, `/docs`, `/refactor`, `/deps`, `/onboard`, and `/ship`. Add user commands in `data/commands/` or through the admin UI; each command is a Markdown file with a name, description, optional arguments, and prompt template.
 
 ## Tools
 
@@ -81,8 +89,9 @@ Built-ins: `/review`, `/test`, `/fix`, `/commit`, `/explain`, `/plan`, `/scaffol
 |---|---|
 | `workspace_info`, `workspace_switch` | Inspect or switch the active workspace |
 | `read`, `list`, `search` | Read files, browse directories, and search content or paths |
-| `write`, `edit`, `apply_patch`, `file_ops`, `undo` | Make checkpointed file changes and restore them |
-| `run`, `job`, `job_stop` | Run shell commands and manage background jobs |
+| `checkpoints` | List recent file change checkpoints |
+| `edit_files` | Batch file writing, replacement, patching, moving, copying, deletion, directory creation, and undo |
+| `run`, `job` | Run shell commands, inspect background jobs, or stop a job with `stop_job_id` |
 | `git`, `git_write` | Inspect git state; add, commit, branch, stash, and other write operations |
 | `skills_list`, `skill_load`, `skill_save` | Find, load, and create skills |
 | `commands_list`, `command_run` | Browse and render command prompts |
@@ -98,12 +107,12 @@ Values are set in `.env`. Compose binds both ports to loopback and mounts `/data
 |---|---:|---|
 | `PROJECTS_DIR` | `~/Projects` | Host directory mounted at the same path; Compose sets `WORKSPACE_ROOTS` to it |
 | `HOST_UID`, `HOST_GID` | current host IDs | Run the container as the host user for mounted files |
-| `PORT`, `ADMIN_PORT` | `8787`, `8788` | MCP and local admin ports |
+| `PORT`, `ADMIN_PORT` | `8787`, `8788` | Host ports published for MCP and admin; the MCP server listens on `8787` inside Docker |
 | `MCP_TOKEN` | generated by setup | Access key for token auth and OAuth login |
 | `PUBLIC_URL` | empty | HTTPS base URL used by OAuth and web clients |
 | `TUNNEL_METRICS_URL` | `http://tunnel:2000` in Compose | Cloudflare Quick Tunnel URL discovery; Compose supplies this automatically |
 | `AUTH_MODE` | `both` | `token`, `oauth`, `both`, or `none` (local use only) |
-| `APPROVAL_MODE` | `minimal` | `minimal` or `standard` tool annotations |
+| `APPROVAL_MODE` | `minimal` | `trust`, `minimal`, or `standard`; can also be changed live in Admin → Settings |
 | `TOOL_PROFILE` | `essential` | `essential` or `full` tool set |
 | `DATA_DIR` | `/data` in Docker | Persistent server data, skills, and commands |
 | `DEFAULT_WORKSPACE` | first workspace root | Initial active project |
