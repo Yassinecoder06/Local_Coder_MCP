@@ -1,5 +1,115 @@
 #!/usr/bin/env node
-/** Owned by agy1. Entry point. */
+/**
+ * Owned by agy1. Main server entrypoint.
+ * Starts two listeners:
+ *  - PORT (8787): MCP server (Streamable HTTP, OAuth 2.1, DCR)
+ *  - ADMIN_PORT (8788): Admin UI & REST API (bound to 127.0.0.1)
+ */
+import crypto from "node:crypto";
+import fs from "node:fs";
+import http from "node:http";
+import path from "node:path";
 import { loadConfig } from "./config.js";
-const config = loadConfig();
-console.log(`[local-coder-mcp] v${config.version} — not implemented yet`);
+import { createActivityLog } from "./core/activity.js";
+import { initSettings, getSettings } from "./core/settings.js";
+import { createAdminApp } from "./admin/app.js";
+import { createMcpApp } from "./http/app.js";
+import { initOAuthStore } from "./http/oauth-store.js";
+import { createSkillRegistry } from "./skills/index.js";
+import { createCommandRegistry } from "./commands/index.js";
+
+async function main() {
+  const config = loadConfig();
+
+  // 1. Ensure DATA_DIR exists
+  fs.mkdirSync(config.dataDir, { recursive: true });
+
+  // 2. Load or generate MCP_TOKEN in DATA_DIR/token if empty
+  const tokenFile = path.join(config.dataDir, "token");
+  if (!config.mcpToken) {
+    if (fs.existsSync(tokenFile)) {
+      config.mcpToken = fs.readFileSync(tokenFile, "utf-8").trim();
+    }
+    if (!config.mcpToken) {
+      config.mcpToken = crypto.randomBytes(24).toString("hex");
+      fs.writeFileSync(tokenFile, config.mcpToken, { encoding: "utf-8", mode: 0o600 });
+      console.log(`[local-coder-mcp] Generated new MCP_TOKEN in ${tokenFile}`);
+    }
+  }
+
+  // 3. Initialize persisted settings and OAuth store
+  initSettings(config.dataDir, {
+    approvalMode: config.approvalMode,
+    toolProfile: config.toolProfile,
+  });
+  initOAuthStore(config.dataDir);
+
+  // 4. Initialize activity log
+  const activityLog = createActivityLog(path.join(config.dataDir, "activity.jsonl"));
+
+  // 5. Build skill & command registries
+  const skillRegistry = createSkillRegistry(config, getSettings());
+  const commandRegistry = createCommandRegistry(config);
+
+  // 6. Create MCP Express app & Session Manager
+  const { app: mcpApp, sessionManager } = createMcpApp({
+    config,
+    activity: activityLog,
+    skills: skillRegistry,
+    commands: commandRegistry,
+  });
+  sessionManager.startCleanup();
+
+  // 7. Create Admin Express app
+  const adminApp = createAdminApp({
+    config,
+    activity: activityLog,
+    skills: skillRegistry,
+    commands: commandRegistry,
+    sessionManager,
+  });
+
+  // 8. Start HTTP listeners
+  const mcpServer = http.createServer(mcpApp);
+  const adminServer = http.createServer(adminApp);
+
+  await new Promise<void>((resolve, reject) => {
+    mcpServer.listen(config.port, config.host, () => {
+      console.log(`[local-coder-mcp] MCP server listening on http://${config.host}:${config.port}`);
+      resolve();
+    });
+    mcpServer.once("error", reject);
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    adminServer.listen(config.adminPort, config.adminHost, () => {
+      console.log(`[local-coder-mcp] Admin UI listening on http://${config.adminHost}:${config.adminPort}`);
+      resolve();
+    });
+    adminServer.once("error", reject);
+  });
+
+  console.log(`[local-coder-mcp] Ready! Auth mode: ${config.authMode}. Profile: ${config.toolProfile}`);
+
+  // 9. Graceful shutdown on SIGINT / SIGTERM
+  const shutdown = () => {
+    console.log("\n[local-coder-mcp] Shutting down gracefully...");
+    sessionManager.stopCleanup();
+    mcpServer.close(() => {
+      adminServer.close(() => {
+        console.log("[local-coder-mcp] Stopped.");
+        process.exit(0);
+      });
+    });
+    // Force exit after 5s timeout
+    setTimeout(() => process.exit(0), 5000).unref();
+  };
+
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+}
+
+main().catch((err) => {
+  console.error("[local-coder-mcp] Fatal error during startup:", err);
+  process.exit(1);
+});
