@@ -21,6 +21,7 @@ async function renderRoute(route) {
   try {
     serverStatus = await request('/status');
     setConnectionState(true);
+    setTrustBadge(serverStatus.approvalMode);
     if (!healthChecked) {
       await refreshHealthIndicator();
       healthChecked = true;
@@ -175,6 +176,14 @@ function setHealthState(state, label, tooltip) {
 }
 
 document.querySelector('#health-indicator').onclick = refreshHealthIndicator;
+
+function setTrustBadge(mode) {
+  document.querySelector('#trust-badge').hidden = mode !== 'trust';
+}
+
+document.addEventListener('approval-mode:change', (event) => {
+  setTrustBadge(event.detail.mode);
+});
 
 document.querySelector('#theme-toggle').onclick = () => {
   const current = localStorage.getItem('lc-theme') || 'auto';
