@@ -13,6 +13,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
