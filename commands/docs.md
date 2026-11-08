@@ -12,6 +12,6 @@ You are generating or auditing project documentation: {{topic}}
 2. Review existing docs:
    - Read `README.md`, `ARCHITECTURE.md`, or existing docs files.
 3. Write or update documentation:
-   - Use `edit` or `write` to update markdown files.
+   - Use `edit_files` to update markdown files.
    - Ensure code examples are accurate, complete, and runnable.
    - Verify formatting and table of contents.

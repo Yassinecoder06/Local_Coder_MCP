@@ -67,7 +67,7 @@ export async function buildInstructions(ctx: ToolContext): Promise<string> {
 ## Workflow Cheat-Sheet
 1. Explore first: use \`workspace_info\`, \`search\`, or \`read\` to understand context before editing.
 2. Work in small, focused steps and verify changes with \`run\`.
-3. Edit safely: \`write\` and \`edit\` create automatic checkpoints that can be restored with \`undo\`.
+3. Edit safely: \`edit_files\` creates automatic checkpoints; inspect with \`checkpoints\` and revert via \`edit_files\` (op: "undo").
 4. Use specialized skills for structured workflows (\`skill_load\` / \`skills_list\`).
 5. Run recipes and commands with \`command_run\`.
 6. Keep commits clean and focused using \`git\` and \`git_write\`.

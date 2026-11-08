@@ -30,7 +30,7 @@ Every commit should represent a single logical change. Follow the Conventional C
 - `chore`: Build process, package updates, or tooling configuration.
 
 ### Examples:
-- `feat(tools): add multi-file patch support in apply_patch`
+- `feat(tools): add multi-file patch support in edit_files`
 - `fix(search): handle missing ripgrep gracefully with JS fallback`
 - `test(skills): add path traversal rejection test`
 

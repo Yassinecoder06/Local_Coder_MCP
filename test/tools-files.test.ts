@@ -6,25 +6,27 @@ import { createTestEnvironment } from "./helpers.js";
 import {
   readTool,
   listTool,
-  writeTool,
-  editTool,
-  applyPatchTool,
-  fileOpsTool,
-  undoTool,
+  checkpointsTool,
+  editFilesTool,
 } from "../src/tools/files.js";
 
-test("files tools: write, read, list, edit, undo, file_ops, apply_patch", async (t) => {
+test("files tools: read, list, checkpoints, edit_files", async (t) => {
   const env = await createTestEnvironment();
 
   t.after(async () => {
     await env.cleanup();
   });
 
-  await t.test("write and read single and multiple files", async () => {
+  await t.test("write and read single and multiple files via edit_files", async () => {
     const file1 = "hello.txt";
     const content1 = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5";
 
-    const writeRes = await writeTool.handler({ path: file1, content: content1 }, env.ctx);
+    const writeRes = await editFilesTool.handler(
+      {
+        operations: [{ op: "write", path: file1, content: content1 }],
+      },
+      env.ctx
+    );
     assert.equal(writeRes.ok, true);
     assert.ok(writeRes.data?.checkpoint_id);
 
@@ -59,20 +61,21 @@ test("files tools: write, read, list, edit, undo, file_ops, apply_patch", async 
     assert.ok(listRes.data.entries.some((e: any) => e.name === "nested.txt"));
   });
 
-  await t.test("edit file with single and multiple replacements", async () => {
+  await t.test("edit_files: replace with single and multiple replacements", async () => {
     const editFile = "edit-me.txt";
-    await writeTool.handler(
-      { path: editFile, content: "apple banana apple cherry" },
+    await editFilesTool.handler(
+      {
+        operations: [{ op: "write", path: editFile, content: "apple banana apple cherry" }],
+      },
       env.ctx
     );
 
-    // Multiple edits
-    const editRes = await editTool.handler(
+    // Multiple replacements in one call
+    const editRes = await editFilesTool.handler(
       {
-        path: editFile,
-        edits: [
-          { old: "apple", new: "orange" }, // first occurrence only
-          { old: "cherry", new: "grape" },
+        operations: [
+          { op: "replace", path: editFile, old: "apple", new: "orange" }, // first occurrence only
+          { op: "replace", path: editFile, old: "cherry", new: "grape" },
         ],
       },
       env.ctx
@@ -83,20 +86,22 @@ test("files tools: write, read, list, edit, undo, file_ops, apply_patch", async 
     assert.equal(check, "orange banana apple grape");
 
     // Replace all
-    const replaceAllRes = await editTool.handler(
+    const replaceAllRes = await editFilesTool.handler(
       {
-        path: editFile,
-        edits: [{ old: "orange", new: "kiwi", replace_all: true }],
+        operations: [
+          { op: "replace", path: editFile, old: "orange", new: "kiwi", replace_all: true },
+        ],
       },
       env.ctx
     );
     assert.equal(replaceAllRes.ok, true);
 
     // Test error on missing text
-    const failRes = await editTool.handler(
+    const failRes = await editFilesTool.handler(
       {
-        path: editFile,
-        edits: [{ old: "non-existent-text", new: "test" }],
+        operations: [
+          { op: "replace", path: editFile, old: "non-existent-text", new: "test" },
+        ],
       },
       env.ctx
     );
@@ -104,40 +109,52 @@ test("files tools: write, read, list, edit, undo, file_ops, apply_patch", async 
     assert.match(failRes.error ?? "", /exact text not found/);
   });
 
-  await t.test("undo restores previous checkpoint", async () => {
+  await t.test("checkpoints listing and edit_files undo restores previous checkpoint", async () => {
     const undoFile = "undo-me.txt";
-    await writeTool.handler({ path: undoFile, content: "version 1" }, env.ctx);
+    await editFilesTool.handler(
+      { operations: [{ op: "write", path: undoFile, content: "version 1" }] },
+      env.ctx
+    );
 
     // Modify file
-    const editRes = await writeTool.handler({ path: undoFile, content: "version 2" }, env.ctx);
-    const cpId = editRes.data.checkpoint_id;
+    const editRes = await editFilesTool.handler(
+      { operations: [{ op: "write", path: undoFile, content: "version 2" }] },
+      env.ctx
+    );
+    const cpId = editRes.data?.checkpoint_id;
     assert.ok(cpId);
 
     // Verify current content
     let content = await fs.readFile(path.join(env.workspaceDir, undoFile), "utf-8");
     assert.equal(content, "version 2");
 
-    // List checkpoints
-    const listCp = await undoTool.handler({}, env.ctx);
+    // List checkpoints using checkpoints read tool
+    const listCp = await checkpointsTool.handler({}, env.ctx);
     assert.equal(listCp.ok, true);
     assert.ok(listCp.data.checkpoints.length > 0);
 
-    // Restore checkpoint
-    const restoreRes = await undoTool.handler({ checkpoint_id: cpId }, env.ctx);
+    // Restore checkpoint using edit_files with op: "undo"
+    const restoreRes = await editFilesTool.handler(
+      { operations: [{ op: "undo", checkpoint_id: cpId }] },
+      env.ctx
+    );
     assert.equal(restoreRes.ok, true);
 
     content = await fs.readFile(path.join(env.workspaceDir, undoFile), "utf-8");
     assert.equal(content, "version 1");
   });
 
-  await t.test("file_ops: move, copy, delete, mkdir", async () => {
+  await t.test("edit_files: move, copy, delete, mkdir", async () => {
     const base = "fileops-test.txt";
-    await writeTool.handler({ path: base, content: "ops content" }, env.ctx);
+    await editFilesTool.handler(
+      { operations: [{ op: "write", path: base, content: "ops content" }] },
+      env.ctx
+    );
 
     // Move
-    const moveRes = await fileOpsTool.handler(
+    const moveRes = await editFilesTool.handler(
       {
-        operations: [{ op: "move", src: base, dest: "moved.txt" }],
+        operations: [{ op: "move", path: base, to: "moved.txt" }],
       },
       env.ctx
     );
@@ -146,9 +163,9 @@ test("files tools: write, read, list, edit, undo, file_ops, apply_patch", async 
     assert.ok(await fs.access(path.join(env.workspaceDir, "moved.txt")).then(() => true));
 
     // Copy
-    const copyRes = await fileOpsTool.handler(
+    const copyRes = await editFilesTool.handler(
       {
-        operations: [{ op: "copy", src: "moved.txt", dest: "copied.txt" }],
+        operations: [{ op: "copy", path: "moved.txt", to: "copied.txt" }],
       },
       env.ctx
     );
@@ -156,7 +173,7 @@ test("files tools: write, read, list, edit, undo, file_ops, apply_patch", async 
     assert.ok(await fs.access(path.join(env.workspaceDir, "copied.txt")).then(() => true));
 
     // Delete
-    const deleteRes = await fileOpsTool.handler(
+    const deleteRes = await editFilesTool.handler(
       {
         operations: [{ op: "delete", path: "copied.txt" }],
       },
@@ -164,23 +181,33 @@ test("files tools: write, read, list, edit, undo, file_ops, apply_patch", async 
     );
     assert.equal(deleteRes.ok, true);
     await assert.rejects(fs.access(path.join(env.workspaceDir, "copied.txt")));
+
+    // Mkdir
+    const mkdirRes = await editFilesTool.handler(
+      {
+        operations: [{ op: "mkdir", path: "new-dir/sub" }],
+      },
+      env.ctx
+    );
+    assert.equal(mkdirRes.ok, true);
+    assert.ok(await fs.access(path.join(env.workspaceDir, "new-dir/sub")).then(() => true));
   });
 
-  await t.test("apply_patch: *** Begin Patch format and unified diff", async () => {
-    // 1. Begin Patch format: Add and Update
+  await t.test("edit_files: top-level patch and operations patch", async () => {
+    // 1. Begin Patch format via top-level patch shorthand: Add and Update
     const patch1 = `*** Begin Patch
 *** Add File: patch-add.txt
 +First line added
 +Second line added
 *** End Patch`;
 
-    const res1 = await applyPatchTool.handler({ patch: patch1 }, env.ctx);
+    const res1 = await editFilesTool.handler({ patch: patch1 }, env.ctx);
     assert.equal(res1.ok, true);
 
     const addedContent = await fs.readFile(path.join(env.workspaceDir, "patch-add.txt"), "utf-8");
     assert.equal(addedContent, "First line added\nSecond line added");
 
-    // 2. Update existing file
+    // 2. Update existing file via operations array
     const patch2 = `*** Begin Patch
 *** Update File: patch-add.txt
 @@ -1,2 +1,3 @@
@@ -189,7 +216,10 @@ test("files tools: write, read, list, edit, undo, file_ops, apply_patch", async 
  Second line added
 *** End Patch`;
 
-    const res2 = await applyPatchTool.handler({ patch: patch2 }, env.ctx);
+    const res2 = await editFilesTool.handler(
+      { operations: [{ op: "patch", patch: patch2 }] },
+      env.ctx
+    );
     assert.equal(res2.ok, true);
 
     const updatedContent = await fs.readFile(path.join(env.workspaceDir, "patch-add.txt"), "utf-8");
@@ -200,7 +230,7 @@ test("files tools: write, read, list, edit, undo, file_ops, apply_patch", async 
 *** Move File: patch-add.txt -> patch-moved.txt
 *** End Patch`;
 
-    const res3 = await applyPatchTool.handler({ patch: patch3 }, env.ctx);
+    const res3 = await editFilesTool.handler({ patch: patch3 }, env.ctx);
     assert.equal(res3.ok, true);
     assert.ok(await fs.access(path.join(env.workspaceDir, "patch-moved.txt")).then(() => true));
     await assert.rejects(fs.access(path.join(env.workspaceDir, "patch-add.txt")));
@@ -210,7 +240,7 @@ test("files tools: write, read, list, edit, undo, file_ops, apply_patch", async 
 *** Delete File: patch-moved.txt
 *** End Patch`;
 
-    const res4 = await applyPatchTool.handler({ patch: patch4 }, env.ctx);
+    const res4 = await editFilesTool.handler({ patch: patch4 }, env.ctx);
     assert.equal(res4.ok, true);
     await assert.rejects(fs.access(path.join(env.workspaceDir, "patch-moved.txt")));
   });

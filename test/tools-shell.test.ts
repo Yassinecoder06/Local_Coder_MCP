@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createTestEnvironment } from "./helpers.js";
-import { runTool, jobTool, jobStopTool } from "../src/tools/shell.js";
+import { runTool, jobTool } from "../src/tools/shell.js";
 
-test("shell tools: run sync, run background, job status/output, job_stop", async (t) => {
+test("shell tools: run sync, run background, job status/output, run with stop_job_id", async (t) => {
   const env = await createTestEnvironment({ shellSyncMs: 500 });
 
   t.after(async () => {
@@ -36,8 +36,8 @@ test("shell tools: run sync, run background, job status/output, job_stop", async
     assert.equal(listRes.ok, true);
     assert.ok(listRes.data.jobs.some((j: any) => j.id === jobId));
 
-    // Stop job
-    const stopRes = await jobStopTool.handler({ job_id: jobId }, env.ctx);
+    // Stop job via run tool with stop_job_id
+    const stopRes = await runTool.handler({ stop_job_id: jobId }, env.ctx);
     assert.equal(stopRes.ok, true);
     assert.equal(stopRes.data.stopped, true);
 

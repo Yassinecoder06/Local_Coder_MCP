@@ -6,16 +6,47 @@ import { jobManager } from "./lib/jobs.js";
 export const runTool = defineTool({
   name: "run",
   title: "Run Shell Command",
-  description: "Run a bash shell command. Commands returning within sync timeout return output immediately; longer processes continue in the background as manageable jobs.",
+  description: "Run a bash shell command or stop a background job via stop_job_id. Commands returning within sync timeout return output immediately; longer processes continue in background as jobs.",
   group: "shell",
   risk: "exec",
   input: {
-    command: z.string().describe("Shell command string to execute in bash"),
-    cwd: z.string().optional().describe("Working directory for command execution (defaults to active workspace)"),
-    timeout_ms: z.number().int().optional().describe("Command timeout limit in milliseconds"),
+    command: z
+      .string()
+      .optional()
+      .describe("Shell command string to execute in bash (required unless stop_job_id is provided)"),
+    stop_job_id: z
+      .string()
+      .optional()
+      .describe("Job ID of a running background job to terminate (alternative to command)"),
+    signal: z
+      .enum(["SIGTERM", "SIGKILL"])
+      .default("SIGTERM")
+      .optional()
+      .describe("Signal to deliver when stopping a job via stop_job_id (default SIGTERM)"),
+    cwd: z
+      .string()
+      .optional()
+      .describe("Working directory for command execution (defaults to active workspace)"),
+    timeout_ms: z
+      .number()
+      .int()
+      .optional()
+      .describe("Command timeout limit in milliseconds"),
   },
   handler: async (args, ctx) => {
     try {
+      if (args.stop_job_id) {
+        const stopped = jobManager.stopJob(args.stop_job_id, args.signal ?? "SIGTERM");
+        return ok("run", `Sent ${args.signal ?? "SIGTERM"} to job ${args.stop_job_id}`, {
+          job_id: args.stop_job_id,
+          stopped,
+        });
+      }
+
+      if (!args.command) {
+        return fail("run", "Either command or stop_job_id must be provided");
+      }
+
       const cwd = ctx.workspace.resolve(args.cwd);
       const syncMs = ctx.config.shellSyncMs;
       const timeoutMs = args.timeout_ms ?? ctx.config.shellTimeoutMs;
@@ -40,7 +71,7 @@ export const runTool = defineTool({
         running: true,
         pid: result.pid,
         output_so_far: result.output_so_far,
-        note: `Use 'job' tool with job_id "${result.job_id}" to check status or output, and 'job_stop' to terminate.`,
+        note: `Use 'job' tool with job_id "${result.job_id}" to check status or output, and 'run' with stop_job_id to terminate.`,
       });
     } catch (err) {
       return fail("run", err);
@@ -55,7 +86,11 @@ export const jobTool = defineTool({
   group: "shell",
   risk: "read",
   input: {
-    action: z.enum(["status", "output", "list"]).default("status").optional().describe("Action to perform: status, output, or list"),
+    action: z
+      .enum(["status", "output", "list"])
+      .default("status")
+      .optional()
+      .describe("Action to perform: status, output, or list"),
     job_id: z.string().optional().describe("Job ID (required for status and output)"),
     limit: z.number().int().optional().describe("Maximum output bytes to return for output action"),
   },
@@ -103,28 +138,5 @@ export const jobTool = defineTool({
   },
 });
 
-export const jobStopTool = defineTool({
-  name: "job_stop",
-  title: "Stop Background Job",
-  description: "Terminate a running background shell job by job_id with SIGTERM or SIGKILL. Use when a background task or dev server is no longer needed.",
-  group: "shell",
-  risk: "exec",
-  input: {
-    job_id: z.string().describe("Job ID of the background job to terminate"),
-    signal: z.enum(["SIGTERM", "SIGKILL"]).default("SIGTERM").optional().describe("Signal to deliver to the process (default SIGTERM)"),
-  },
-  handler: async (args, _ctx) => {
-    try {
-      const stopped = jobManager.stopJob(args.job_id, args.signal ?? "SIGTERM");
-      return ok("job_stop", `Sent ${args.signal ?? "SIGTERM"} to job ${args.job_id}`, {
-        job_id: args.job_id,
-        stopped,
-      });
-    } catch (err) {
-      return fail("job_stop", err);
-    }
-  },
-});
-
-const tools: ToolModule = [runTool, jobTool, jobStopTool];
+const tools: ToolModule = [runTool, jobTool];
 export default tools;
