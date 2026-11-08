@@ -209,6 +209,7 @@ textarea {
 }
 
 .main-area {
+  min-width: 0;
   min-height: 100vh;
   margin-left: var(--sidebar-width);
   transition: margin-left .2s ease;
@@ -218,13 +219,20 @@ textarea {
   position: sticky;
   z-index: 4;
   top: 0;
-  display: flex;
+  display: grid;
   height: 60px;
   align-items: center;
-  justify-content: space-between;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   padding: 0 36px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
+}
+
+.topbar-left {
+  display: flex;
+  min-width: 0;
+  grid-column: 1;
+  align-items: center;
 }
 
 .crumb {
@@ -239,6 +247,9 @@ textarea {
 
 .health-indicator {
   display: inline-flex;
+  min-width: max-content;
+  grid-column: 3;
+  justify-self: end;
   align-items: center;
   gap: 8px;
   padding: 7px 10px;
@@ -277,6 +288,8 @@ textarea {
 }
 
 .trust-badge {
+  grid-column: 2;
+  justify-self: center;
   padding: 5px 9px;
   border: 1px solid color-mix(in srgb, var(--amber), transparent 65%);
   border-radius: 999px;
@@ -472,6 +485,17 @@ textarea {
   gap: 16px;
 }
 
+.connect-grid > *,
+.connect-card,
+.connect-card-head > *,
+.url-row,
+.key-panel > *,
+.key-controls,
+.notice,
+.notice > div {
+  min-width: 0;
+}
+
 .connect-card-head {
   display: flex;
   align-items: center;
@@ -503,6 +527,7 @@ textarea {
 
 .client-state {
   margin-left: auto;
+  flex: 0 0 auto;
   padding: 4px 8px;
   border-radius: 20px;
   background: var(--green-bg);
@@ -513,6 +538,7 @@ textarea {
 
 .url-row {
   display: flex;
+  width: 100%;
   align-items: center;
   gap: 8px;
   padding: 6px 7px 6px 10px;
@@ -524,11 +550,15 @@ textarea {
 .url-row code {
   overflow: hidden;
   min-width: 0;
-  flex: 1;
+  flex: 1 1 auto;
   color: var(--text);
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.url-row .button {
+  flex: 0 0 auto;
 }
 
 .steps {
@@ -539,6 +569,7 @@ textarea {
 }
 
 .steps li {
+  min-width: 0;
   padding: 3px 0 3px 3px;
 }
 
@@ -875,12 +906,18 @@ textarea {
   backdrop-filter: blur(2px);
 }
 
-.trust-dialog {
-  width: min(480px, calc(100vw - 32px));
-  height: auto;
-  max-height: calc(100vh - 32px);
-  margin: auto;
+.trust-dialog,
+.confirm-dialog {
+  position: fixed;
+  top: 50dvh;
+  left: 50vw;
+  width: min(420px, calc(100vw - 32px));
+  box-sizing: border-box;
+  height: fit-content;
+  max-height: calc(100dvh - 32px);
+  margin: 0;
   border-radius: var(--radius-lg);
+  transform: translate(-50%, -50%);
 }
 
 .trust-warning {
@@ -889,6 +926,12 @@ textarea {
   border: 1px solid color-mix(in srgb, var(--red), transparent 70%);
   border-radius: var(--radius-sm);
   background: var(--red-bg);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.confirm-message {
+  margin: 18px 0 22px;
   color: var(--text);
   font-size: 13px;
 }
@@ -1505,11 +1548,16 @@ textarea {
 
   .key-controls {
     width: 100%;
+    flex-wrap: wrap;
   }
 
   .key-field {
     width: auto;
-    flex: 1;
+    flex: 1 1 100%;
+  }
+
+  .key-controls > .button {
+    flex: 1 1 0;
   }
 
   .setting-section {
@@ -1577,7 +1625,6 @@ textarea {
   }
 
   .topbar {
-    justify-content: flex-start;
     padding: 0 16px;
   }
 
@@ -1591,6 +1638,27 @@ textarea {
 
   .connect-grid {
     grid-template-columns: 1fr;
+  }
+
+  .activity-table {
+    table-layout: fixed;
+    white-space: normal;
+  }
+
+  .activity-table th,
+  .activity-table td {
+    padding-right: 5px;
+    padding-left: 5px;
+    overflow-wrap: anywhere;
+  }
+
+  #view,
+  #view * {
+    min-width: 0;
+  }
+
+  #view :is(p, li, code, h1, h2, small, strong, span, a, td, th) {
+    overflow-wrap: anywhere;
   }
 
   .page-heading {

@@ -1,5 +1,13 @@
 import { request, send } from '../api.js';
-import { bindCopyButtons, copyText, duration, escapeHtml, pageHeader, toast } from '../ui.js';
+import {
+  bindCopyButtons,
+  confirmAction,
+  copyText,
+  duration,
+  escapeHtml,
+  pageHeader,
+  toast,
+} from '../ui.js';
 
 const clientIcon = { chatgpt: '✳', gemini: '✦' };
 
@@ -77,7 +85,11 @@ export async function renderConnect(view, status) {
     copyText(view.querySelector('#access-key').value, 'Access key copied');
   };
   view.querySelector('#rotate-key').onclick = async () => {
-    if (!confirm('Rotate the access key? Existing client connections and OAuth tokens will stop working.')) {
+    const confirmed = await confirmAction(
+      'Rotate the access key? Existing client connections and OAuth tokens will stop working.',
+      { title: 'Rotate access key?', confirmLabel: 'Rotate key' },
+    );
+    if (!confirmed) {
       return;
     }
     try {

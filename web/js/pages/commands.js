@@ -45,7 +45,10 @@ function drawCommands(view) {
 }
 
 async function deleteCommand(view, name) {
-  if (!confirmAction(`Delete command “${name}”?`)) return;
+  if (!await confirmAction(`Delete command “${name}”?`, {
+    title: 'Delete command?',
+    confirmLabel: 'Delete command',
+  })) return;
   try {
     await send(`/commands/${encodeURIComponent(name)}`, 'DELETE');
     commands = commands.filter((command) => command.name !== name);

@@ -74,7 +74,10 @@ async function toggleSkill(input) {
 }
 
 async function deleteSkill(view, name) {
-  if (!confirmAction(`Delete skill “${name}”?`)) return;
+  if (!await confirmAction(`Delete skill “${name}”?`, {
+    title: 'Delete skill?',
+    confirmLabel: 'Delete skill',
+  })) return;
   try {
     await send(`/skills/${encodeURIComponent(name)}`, 'DELETE');
     skills = skills.filter((skill) => skill.name !== name);
