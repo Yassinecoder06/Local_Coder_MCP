@@ -46,16 +46,16 @@ function globToRegex(glob: string): RegExp {
 export const searchTool = defineTool({
   name: "search",
   title: "Search Codebase",
-  description: "Search file contents using regex/literal pattern (or search filenames with glob) using ripgrep with JS fallback. Respects .gitignore.",
+  description: "Search file contents with regex/literal and context lines, or search file paths in 'files' mode. Narrow with glob filters to find relevant matches in one call.",
   group: "search",
   risk: "read",
   input: {
-    pattern: z.string().describe("Regex or literal pattern to search for (or file pattern in 'files' mode)"),
-    mode: z.enum(["content", "files"]).default("content").optional().describe("Search mode: 'content' (search text in files) or 'files' (find matching filenames)"),
+    pattern: z.string().describe("Regex or literal pattern to search for (or file glob pattern in 'files' mode)"),
+    mode: z.enum(["content", "files"]).default("content").optional().describe("Search mode: 'content' for text search or 'files' for filename search (default 'content')"),
     path: z.string().optional().describe("Directory or file to search within (defaults to active workspace)"),
-    glob: z.string().optional().describe("File glob filter for content search, e.g. '*.ts' or '!*.test.ts'"),
+    glob: z.string().optional().describe("File glob filter for content search (e.g. '*.ts' or '!*.test.ts')"),
     case_sensitive: z.boolean().default(false).optional().describe("Case-sensitive match (default false)"),
-    context: z.number().int().min(0).max(10).default(0).optional().describe("Lines of context before and after matches (content mode)"),
+    context: z.number().int().min(0).max(10).default(0).optional().describe("Lines of context before and after matches in content mode (default 0)"),
     limit: z.number().int().min(1).max(1000).default(100).optional().describe("Maximum matches to return (default 100)"),
   },
   handler: async (args, ctx) => {

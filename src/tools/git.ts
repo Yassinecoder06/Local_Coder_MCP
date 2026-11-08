@@ -18,7 +18,7 @@ const FORBIDDEN_READ_ARGS = [
 export const gitTool = defineTool({
   name: "git",
   title: "Git Read Operations",
-  description: "Execute read-only git commands (status, diff, log, show, branch, blame). Non-destructive and safe.",
+  description: "Execute safe, read-only git commands (status, diff, log, show, branch, blame). Always inspect status or diff before making changes or committing.",
   group: "git",
   risk: "read",
   input: {
@@ -30,7 +30,7 @@ export const gitTool = defineTool({
       .default([])
       .optional()
       .describe("Arguments to pass to git (e.g. ['--staged', 'HEAD~1', '-n', '10'])"),
-    path: z.string().optional().describe("Optional path filter"),
+    path: z.string().optional().describe("Optional path filter within repository"),
   },
   handler: async (args, ctx) => {
     try {
@@ -78,7 +78,7 @@ export const gitTool = defineTool({
 export const gitWriteTool = defineTool({
   name: "git_write",
   title: "Git Mutating Operations",
-  description: "Execute mutating git commands (add, commit, checkout, switch, branch, restore, stash, pull, push, merge).",
+  description: "Execute mutating git commands (add, commit, checkout, switch, branch, restore, stash, pull, push, merge). Batch staging and commit operations where possible.",
   group: "git",
   risk: "exec",
   input: {

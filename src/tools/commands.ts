@@ -5,7 +5,7 @@ import { ok, fail } from "../core/result.js";
 export const commandsListTool = defineTool({
   name: "commands_list",
   title: "List Commands",
-  description: "List available task recipes/commands with their descriptions, arguments, and source.",
+  description: "List available reusable task commands and recipes. Inspect available commands for standardized workflows like review, test, plan, and ship.",
   group: "commands",
   risk: "read",
   input: {},
@@ -23,7 +23,7 @@ export const commandsListTool = defineTool({
 export const commandRunTool = defineTool({
   name: "command_run",
   title: "Run Command",
-  description: "Render a task recipe/command template with arguments into executable instructions the model must follow.",
+  description: "Render a task recipe command with arguments into actionable instructions the model must follow. Use to execute standard workflows.",
   group: "commands",
   risk: "read",
   input: {

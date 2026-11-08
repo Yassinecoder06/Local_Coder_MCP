@@ -21,12 +21,16 @@ const IGNORED_DIRS = new Set([
 export const readTool = defineTool({
   name: "read",
   title: "Read Files",
-  description: "Read one or more files with numbered lines, optional line range offset/limit, and size caps.",
+  description: "Read 1 to N files with numbered lines and optional line ranges. Always batch multiple file paths in a single call to minimize confirmations.",
   group: "files",
   risk: "read",
   input: {
-    paths: z.array(z.string()).optional().describe("1 or more file paths to read"),
-    path: z.string().optional().describe("Single file path to read (alternative to paths)"),
+    paths: z
+      .array(z.string())
+      .default([])
+      .optional()
+      .describe("List of file paths to read. Batch multiple files in one call to avoid extra confirmation prompts."),
+    path: z.string().optional().describe("Single file path to read when reading only one file"),
     offset: z.number().int().min(1).optional().describe("Starting line number (1-based, default 1)"),
     limit: z.number().int().min(1).optional().describe("Maximum number of lines to read per file"),
   },
@@ -111,13 +115,13 @@ export const readTool = defineTool({
 export const listTool = defineTool({
   name: "list",
   title: "List Directory",
-  description: "List directory tree with depth limit, ignoring node_modules, .git, and build artifacts.",
+  description: "List directory tree with depth limit, ignoring node_modules, .git, and build artifacts. Use to inspect project layout in one call.",
   group: "files",
   risk: "read",
   input: {
-    path: z.string().optional().describe("Directory path (defaults to active workspace)"),
-    depth: z.number().int().min(1).max(10).default(3).optional().describe("Maximum directory depth (default 3)"),
-    show_hidden: z.boolean().default(false).optional().describe("Include hidden files/folders (default false)"),
+    path: z.string().optional().describe("Directory path to list (defaults to active workspace)"),
+    depth: z.number().int().min(1).max(10).default(3).optional().describe("Maximum directory depth to traverse (default 3)"),
+    show_hidden: z.boolean().default(false).optional().describe("Include hidden files and folders (default false)"),
   },
   handler: async (args, ctx) => {
     try {
@@ -188,12 +192,12 @@ export const listTool = defineTool({
 export const writeTool = defineTool({
   name: "write",
   title: "Write File",
-  description: "Create or overwrite a file (creates parent directories automatically). Checkpointed for undo.",
+  description: "Create or overwrite a file with automatic directory creation and checkpointing. For multi-file changes, prefer apply_patch to minimize approval prompts.",
   group: "files",
   risk: "write",
   input: {
-    path: z.string().describe("File path to create or overwrite"),
-    content: z.string().describe("Full content of the file"),
+    path: z.string().describe("Target file path to create or overwrite"),
+    content: z.string().describe("Full file content to write"),
   },
   handler: async (args, ctx) => {
     try {
@@ -225,37 +229,29 @@ export const writeTool = defineTool({
 export const editTool = defineTool({
   name: "edit",
   title: "Edit File",
-  description: "Apply 1 or more exact string replacements to a file. Checkpointed for undo.",
+  description: "Apply 1 or more exact string replacements in a file with checkpointing. Always batch all replacements for a file into one call to avoid multiple confirmations.",
   group: "files",
   risk: "write",
   input: {
-    path: z.string().describe("File path to edit"),
+    path: z.string().describe("Target file path to edit"),
     edits: z
       .array(
         z.object({
           old: z.string().describe("Exact text to find and replace"),
           new: z.string().describe("Replacement text"),
-          replace_all: z.boolean().default(false).optional().describe("Replace all occurrences (default false)"),
+          replace_all: z.boolean().default(false).optional().describe("Replace all occurrences if true, first occurrence if false"),
         })
       )
-      .optional()
-      .describe("List of exact string replacements"),
-    old: z.string().optional().describe("Single edit old text (fallback)"),
-    new: z.string().optional().describe("Single edit new text (fallback)"),
-    replace_all: z.boolean().default(false).optional().describe("Single edit replace_all flag"),
+      .describe("List of exact string replacements to apply sequentially. Batch all edits for the file into one call."),
   },
   handler: async (args, ctx) => {
     try {
       const absPath = ctx.workspace.resolve(args.path);
       const displayPath = ctx.workspace.display(absPath);
 
-      const editList: Array<{ old: string; new: string; replace_all?: boolean }> = [];
-      if (args.edits && args.edits.length > 0) {
-        editList.push(...args.edits);
-      } else if (args.old !== undefined && args.new !== undefined) {
-        editList.push({ old: args.old, new: args.new, replace_all: args.replace_all });
-      } else {
-        return fail("edit", "Either edits array or old/new strings must be provided");
+      const editList = args.edits;
+      if (!editList || editList.length === 0) {
+        return fail("edit", "edits array must contain at least one replacement");
       }
 
       let content = await fs.readFile(absPath, "utf-8");
@@ -304,11 +300,11 @@ export const editTool = defineTool({
 export const applyPatchTool = defineTool({
   name: "apply_patch",
   title: "Apply Patch",
-  description: "Apply a multi-file patch (supporting '*** Begin Patch' format and unified diffs). Checkpointed for undo.",
+  description: "Apply multi-file patches (create, update, delete, move) using '*** Begin Patch' or unified diff format with checkpointing. Strongly preferred for multi-file changes to avoid multiple confirmation prompts.",
   group: "files",
   risk: "write",
   input: {
-    patch: z.string().describe("Patch in '*** Begin Patch' format or standard unified diff"),
+    patch: z.string().describe("Multi-file patch in '*** Begin Patch' format or standard unified diff"),
   },
   handler: async (args, ctx) => {
     try {
@@ -391,21 +387,21 @@ export const applyPatchTool = defineTool({
 export const fileOpsTool = defineTool({
   name: "file_ops",
   title: "File Operations",
-  description: "Batch move, copy, delete, or create directories. Checkpointed for undo.",
+  description: "Batch file operations (move, copy, delete, mkdir) with undo checkpointing. Always batch multiple file operations into one call to avoid extra approval prompts.",
   group: "files",
   risk: "write",
   input: {
     operations: z
       .array(
         z.object({
-          op: z.enum(["move", "copy", "delete", "mkdir"]).describe("Operation type"),
-          src: z.string().optional().describe("Source path for move/copy"),
-          dest: z.string().optional().describe("Destination path for move/copy"),
-          path: z.string().optional().describe("Target path for delete/mkdir"),
+          op: z.enum(["move", "copy", "delete", "mkdir"]).describe("File operation type"),
+          src: z.string().optional().describe("Source path for move or copy operation"),
+          dest: z.string().optional().describe("Destination path for move or copy operation"),
+          path: z.string().optional().describe("Target path for delete or mkdir operation"),
         })
       )
       .min(1)
-      .describe("Batch of file operations"),
+      .describe("List of file operations to execute in batch"),
   },
   handler: async (args, ctx) => {
     try {
@@ -469,12 +465,12 @@ export const fileOpsTool = defineTool({
 export const undoTool = defineTool({
   name: "undo",
   title: "Undo Checkpoint",
-  description: "List recent checkpoints or restore files to a previous checkpoint snapshot.",
+  description: "List recent checkpoints or restore files to a previous checkpoint. Use to revert changes made by write, edit, apply_patch, or file_ops.",
   group: "files",
   risk: "write",
   input: {
     checkpoint_id: z.string().optional().describe("Checkpoint ID to restore. If omitted, lists recent checkpoints."),
-    limit: z.number().int().min(1).max(50).default(10).optional().describe("Max checkpoints to list when checkpoint_id is omitted"),
+    limit: z.number().int().min(1).max(50).default(10).optional().describe("Maximum number of checkpoints to list when checkpoint_id is omitted (default 10)"),
   },
   handler: async (args, ctx) => {
     try {
