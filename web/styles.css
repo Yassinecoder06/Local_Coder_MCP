@@ -276,6 +276,21 @@ textarea {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber), transparent 85%);
 }
 
+.trust-badge {
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--amber), transparent 65%);
+  border-radius: 999px;
+  background: var(--amber-bg);
+  color: var(--amber);
+  font-size: 10px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.trust-badge[hidden] {
+  display: none;
+}
+
 .view {
   max-width: 1140px;
   margin: 0 auto;
@@ -436,6 +451,19 @@ textarea {
   margin-left: auto;
   color: var(--faint);
   font-size: 11px;
+}
+
+.connect-approval-hint {
+  margin: -5px 0 18px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.connect-approval-hint a {
+  color: var(--accent);
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .connect-grid {
@@ -847,6 +875,41 @@ textarea {
   backdrop-filter: blur(2px);
 }
 
+.trust-dialog {
+  width: min(480px, calc(100vw - 32px));
+  height: auto;
+  max-height: calc(100vh - 32px);
+  margin: auto;
+  border-radius: var(--radius-lg);
+}
+
+.trust-warning {
+  margin: 18px 0 22px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--red), transparent 70%);
+  border-radius: var(--radius-sm);
+  background: var(--red-bg);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.button-danger {
+  border-color: var(--red);
+  background: var(--red);
+  color: white;
+}
+
+.button-danger:hover {
+  border-color: color-mix(in srgb, var(--red), black 15%);
+  background: color-mix(in srgb, var(--red), black 15%);
+}
+
 .dialog form {
   display: grid;
   gap: 18px;
@@ -1255,6 +1318,10 @@ textarea {
   gap: 9px;
 }
 
+.radio-cards.approval-options {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .radio-card {
   display: flex;
   align-items: flex-start;
@@ -1641,6 +1708,10 @@ textarea {
   }
 
   .radio-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .radio-cards.approval-options {
     grid-template-columns: 1fr;
   }
 

@@ -3,11 +3,13 @@ import { escapeHtml, pageHeader, toast } from '../ui.js';
 
 let settings = {};
 let statusData = {};
+let savedApprovalMode = 'minimal';
 
 export async function renderSettings(view, status) {
   statusData = status;
   settings = await request('/settings');
   const approvalMode = settings.approvalMode || status.approvalMode || 'minimal';
+  savedApprovalMode = approvalMode;
   const toolProfile = settings.toolProfile || status.toolProfile || 'essential';
   const roots = status.workspaceRoots || [];
   view.innerHTML = `${pageHeader(
@@ -18,14 +20,18 @@ export async function renderSettings(view, status) {
   <div class="settings-stack">
     <section class="panel setting-section"><div class="setting-copy"><h2>Approval mode</h2>
       <p>Choose how much confirmation is needed before actions run.</p></div>
-      <div class="radio-cards">
+      <div class="radio-cards approval-options">
+        <label class="radio-card ${approvalMode === 'trust' ? 'selected' : ''}">
+          <input type="radio" name="approvalMode" value="trust" ${approvalMode === 'trust' ? 'checked' : ''}>
+          <span><strong>Trust</strong><small>Never ask. Every tool runs without confirmation in ChatGPT and Gemini.</small></span>
+        </label>
         <label class="radio-card ${approvalMode === 'minimal' ? 'selected' : ''}">
           <input type="radio" name="approvalMode" value="minimal" ${approvalMode === 'minimal' ? 'checked' : ''}>
-          <span><strong>Minimal</strong><small>Ask only when an action needs extra confirmation. Best for a smooth workflow.</small></span>
+          <span><strong>Minimal (recommended)</strong><small>One-time Always allow per tool; read-only tools never ask.</small></span>
         </label>
         <label class="radio-card ${approvalMode === 'standard' ? 'selected' : ''}">
           <input type="radio" name="approvalMode" value="standard" ${approvalMode === 'standard' ? 'checked' : ''}>
-          <span><strong>Standard</strong><small>Use a more cautious approval level for write and execution actions.</small></span>
+          <span><strong>Standard</strong><small>Clients may ask every time.</small></span>
         </label>
       </div>
     </section>
@@ -57,6 +63,10 @@ export async function renderSettings(view, status) {
       input.closest('.radio-cards').querySelectorAll('.radio-card').forEach((card) => {
         card.classList.toggle('selected', card.querySelector('input').checked);
       });
+      if (input.name === 'approvalMode' && input.value === 'trust'
+        && savedApprovalMode !== 'trust') {
+        document.querySelector('#trust-confirm-dialog').showModal();
+      }
     });
   });
   view.querySelector('#save-settings').onclick = () => saveSettings(view);
@@ -69,10 +79,49 @@ async function saveSettings(view) {
   };
   try {
     settings = await send('/settings', 'PATCH', patch);
+    savedApprovalMode = settings.approvalMode;
     statusData.approvalMode = settings.approvalMode;
     statusData.toolProfile = settings.toolProfile;
+    document.dispatchEvent(new CustomEvent('approval-mode:change', {
+      detail: { mode: settings.approvalMode },
+    }));
     toast('Settings saved');
   } catch (error) {
     toast(error.message, true);
   }
 }
+
+document.querySelector('#trust-cancel').addEventListener('click', () => {
+  document.querySelector('#trust-confirm-dialog').close();
+});
+
+document.querySelector('#trust-confirm').addEventListener('click', async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    settings = await send('/settings', 'PATCH', { approvalMode: 'trust' });
+    savedApprovalMode = settings.approvalMode || 'trust';
+    statusData.approvalMode = savedApprovalMode;
+    document.dispatchEvent(new CustomEvent('approval-mode:change', {
+      detail: { mode: savedApprovalMode },
+    }));
+    document.querySelector('#trust-confirm-dialog').close();
+    toast('Trust mode enabled');
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+document.querySelector('#trust-confirm-dialog').addEventListener('close', () => {
+  if (savedApprovalMode === 'trust') return;
+  const selected = document.querySelector(
+    `input[name="approvalMode"][value="${savedApprovalMode}"]`,
+  );
+  if (!selected) return;
+  selected.checked = true;
+  selected.closest('.radio-cards').querySelectorAll('.radio-card').forEach((card) => {
+    card.classList.toggle('selected', card.querySelector('input').checked);
+  });
+});

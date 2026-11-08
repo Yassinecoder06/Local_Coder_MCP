@@ -57,6 +57,9 @@
             aria-live="polite" aria-label="Checking server health" title="Checking server health">
             <span class="health-dot"></span><span id="health-label">Checking health</span>
           </button>
+          <span class="trust-badge" id="trust-badge" title="All tools run without client confirmation" hidden>
+            Trust mode
+          </span>
         </header>
         <div id="error-banner" class="error-banner" role="alert" hidden>
           <strong>Can’t reach the admin API</strong>
@@ -111,6 +114,24 @@
           <button class="button button-primary" id="import-path" type="button">Import folder</button>
         </div>
       </form>
+    </dialog>
+
+    <dialog id="trust-confirm-dialog" class="dialog trust-dialog"
+      aria-labelledby="trust-dialog-title" aria-describedby="trust-dialog-warning">
+      <div class="dialog-header">
+        <div><p class="eyebrow">APPROVAL MODE</p><h2 id="trust-dialog-title">Enable Trust mode?</h2></div>
+      </div>
+      <p id="trust-dialog-warning" class="trust-warning">
+        Trust mode disables all client approval prompts. Content the AI reads, including web pages
+        and files, could make it run commands on your machine without asking. Only enable this if
+        you accept that risk.
+      </p>
+      <div class="dialog-actions">
+        <button class="button" id="trust-cancel" type="button">Cancel</button>
+        <button class="button button-danger" id="trust-confirm" type="button">
+          Enable Trust mode
+        </button>
+      </div>
     </dialog>
   </body>
 </html>

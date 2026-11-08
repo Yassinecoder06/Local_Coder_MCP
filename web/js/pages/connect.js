@@ -46,6 +46,10 @@ export async function renderConnect(view, status) {
     <span class="status-separator"></span><span><strong>${Number(status.sessions) || 0}</strong> active sessions</span>
     <span class="status-meta">v${escapeHtml(status.version || '—')} · up ${duration(status.uptimeSec)}</span>
   </div>
+  <p class="connect-approval-hint">
+    Seeing Allow prompts in Gemini? Click Always allow once per tool (4 tools), or enable
+    <a href="#settings">Trust mode in Settings</a>.
+  </p>
   <div class="connect-grid">
     ${renderClientCard(connect.chatgpt || {}, 'ChatGPT', 'Connect from ChatGPT web in Developer Mode.')}
     ${renderClientCard(connect.gemini || {}, 'Gemini', 'Connect with a Gemini custom app using OAuth.')}

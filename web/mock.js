@@ -105,15 +105,15 @@ const toolDefinitions = [
   ['undo', 'Undo changes', 'Restore a checkpoint.', 'File changes', 'write', 'essential'],
   ['run', 'Run command', 'Run a shell command in the workspace.', 'Execution', 'exec', 'essential'],
   ['job', 'Manage jobs', 'Inspect a background command.', 'Execution', 'read', 'essential'],
-  ['job_stop', 'Stop job', 'Stop a background process.', 'Execution', 'exec', 'full'],
+  ['job_stop', 'Stop job', 'Stop a background process.', 'Execution', 'exec', 'essential'],
   ['git', 'Git status', 'Inspect git history and changes.', 'Git', 'read', 'essential'],
-  ['git_write', 'Git write', 'Commit, switch branches, or manage changes.', 'Git', 'exec', 'full'],
+  ['git_write', 'Git write', 'Commit, switch branches, or manage changes.', 'Git', 'exec', 'essential'],
   ['skills_list', 'List skills', 'List enabled skills.', 'Knowledge', 'read', 'essential'],
   ['skill_load', 'Load skill', 'Read skill instructions and files.', 'Knowledge', 'read', 'essential'],
   ['skill_save', 'Save skill', 'Create or update a skill.', 'Knowledge', 'write', 'essential'],
   ['commands_list', 'List commands', 'List prompt commands.', 'Knowledge', 'read', 'essential'],
   ['command_run', 'Run command prompt', 'Expand a reusable command template.', 'Knowledge', 'read', 'essential'],
-  ['fetch_url', 'Fetch URL', 'Read a web page as text.', 'Research', 'read', 'full'],
+  ['fetch_url', 'Fetch URL', 'Read a web page as text.', 'Research', 'read', 'essential'],
   ['status', 'Server status', 'Inspect server configuration.', 'System', 'read', 'essential'],
 ];
 let tools = toolDefinitions.map(([name, title, description, group, risk, profile]) => ({
@@ -273,6 +273,9 @@ export async function request(path, options = {}) {
 
   if (path === '/settings' && method === 'GET') return clone(settings);
   if (path === '/settings' && method === 'PATCH') {
+    if (body.approvalMode && !['trust', 'minimal', 'standard'].includes(body.approvalMode)) {
+      fail('Approval mode must be trust, minimal, or standard');
+    }
     settings = { ...settings, ...body };
     status.approvalMode = settings.approvalMode;
     status.toolProfile = settings.toolProfile;
