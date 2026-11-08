@@ -1,0 +1,56 @@
+/**
+ * SHARED CONTRACT — owned by the orchestrator. Do not change signatures without
+ * coordinating; every tool module, the MCP server and the admin API depend on it.
+ */
+import type { z } from "zod";
+import type { AppConfig } from "../config.js";
+import type { SkillRegistry } from "../skills/registry.js";
+import type { CommandRegistry } from "../commands/registry.js";
+import type { ActivityLog } from "./activity.js";
+import type { Workspace } from "./workspace.js";
+
+/**
+ * Risk drives MCP tool annotations (see core/annotations.ts):
+ *  - read:   never changes anything  -> readOnlyHint: true (no confirmation in ChatGPT/Gemini)
+ *  - write:  edits files in the workspace
+ *  - exec:   runs commands
+ */
+export type ToolRisk = "read" | "write" | "exec";
+
+/** Stable result envelope returned (as structuredContent + short text) by every tool. */
+export interface ToolResult<T = unknown> {
+  ok: boolean;
+  tool: string;
+  summary: string;
+  data?: T;
+  error?: string;
+}
+
+/** Everything a tool handler may use. Built once per MCP session. */
+export interface ToolContext {
+  config: AppConfig;
+  workspace: Workspace;
+  skills: SkillRegistry;
+  commands: CommandRegistry;
+  activity: ActivityLog;
+}
+
+export interface ToolDefinition<S extends z.ZodRawShape = z.ZodRawShape> {
+  name: string; // snake_case, unique
+  title: string; // short human label shown in ChatGPT/Gemini
+  description: string; // 1-3 sentences, written for the model
+  group: ToolGroup;
+  risk: ToolRisk;
+  input: S; // zod raw shape
+  handler: (args: z.infer<z.ZodObject<S>>, ctx: ToolContext) => Promise<ToolResult>;
+}
+
+export type ToolGroup = "files" | "search" | "shell" | "git" | "workspace" | "skills" | "commands" | "system";
+
+/** Every module in src/tools/*.ts default-exports a ToolModule. */
+export type ToolModule = ToolDefinition<any>[];
+
+/** Helper so modules get type inference: `export default [defineTool({...}), ...]`. */
+export function defineTool<S extends z.ZodRawShape>(def: ToolDefinition<S>): ToolDefinition<S> {
+  return def;
+}

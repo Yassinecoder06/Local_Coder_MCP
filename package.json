@@ -1,0 +1,33 @@
+{
+  "name": "local-coder-mcp",
+  "version": "1.0.0",
+  "description": "Self-hosted MCP server that turns ChatGPT web and Gemini web into a local coding agent: files, shell, git, skills and commands, in Docker.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "local-coder-mcp": "dist/index.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test \"test/**/*.test.ts\"",
+    "e2e": "bash scripts/e2e.sh"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.0",
+    "express": "^5.2.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
