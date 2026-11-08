@@ -8,6 +8,16 @@ import gitTools from "./git.js";
 import skillsTools from "./skills.js";
 import commandsTools from "./commands.js";
 import systemTools from "./system.js";
+import memoryTools from "./memory.js";
+
+// Dynamic import for browser tools authored by agy1 (fails open if not yet compiled or present)
+let browserTools: ToolModule = [];
+try {
+  const browserMod = (await import("./browser.js" as string).catch(() => null)) as { default?: ToolModule } | null;
+  if (browserMod?.default && Array.isArray(browserMod.default)) {
+    browserTools = browserMod.default;
+  }
+} catch {}
 
 export const ESSENTIAL_TOOLS = new Set<string>([
   "workspace_info",
@@ -28,6 +38,9 @@ export const ESSENTIAL_TOOLS = new Set<string>([
   "command_run",
   "fetch_url",
   "status",
+  "todo",
+  "resume",
+  "browser_check",
 ]);
 
 const modules: ToolModule[] = [
@@ -39,6 +52,8 @@ const modules: ToolModule[] = [
   skillsTools,
   commandsTools,
   systemTools,
+  memoryTools,
+  browserTools,
 ];
 
 export default modules;

@@ -33,8 +33,8 @@ Essential profile (all others are `full` only). Names are final:
 | `list` | read | directory tree with depth, ignores node_modules/.git/dist |
 | `search` | read | ripgrep content search (regex, glob filter, context lines) **and** `files` mode glob |
 | `checkpoints` | read | list recent file modification checkpoints created by `edit_files` |
-| `edit_files` | write | batch write, replace, patch, move, copy, delete, mkdir, or undo; creates automatic checkpoint |
-| `run` | exec | run shell command in bash (cwd, timeout), or kill a job via `stop_job_id`; background jobs return `job_id` |
+| `edit_files` | write | batch write, replace, patch, move, copy, delete, mkdir, or undo; creates checkpoint and runs diagnostics |
+| `run` | exec | run shell command in bash (cwd, timeout), stop job via `stop_job_id`, or run checks via `verify: true` |
 | `job` | read | `status`/`output`/`list` of background jobs |
 | `git` | read | read-only git: status, diff (staged/unstaged/path), log, show, branch list, blame |
 | `git_write` | exec | add, commit, checkout/switch, branch create, restore, stash, pull, push, merge |
@@ -45,6 +45,9 @@ Essential profile (all others are `full` only). Names are final:
 | `command_run` | read | render a command with args → instructions the model must follow next |
 | `fetch_url` | read | HTTP GET a URL (docs, APIs) → text/markdown-ish, size capped |
 | `status` | read | server version, uptime, auth mode, tool profile, approval mode |
+| `todo` | read | keep a task plan in assistant scratch memory across reconnects (list, set, update) |
+| `resume` | read | resume ongoing work: workspace, todo plan, recent activity, git status, running jobs |
+| `browser_check` | read | headless browser verification (URL or local HTML): console logs, page errors, screenshot |
 
 Built-in skills in `skills/`: `herdr`, `ui-design`, `code-review`, `git-workflow`, `skill-authoring`.
 Built-in commands in `commands/`: `review`, `test`, `fix`, `commit`, `explain`, `plan`, `scaffold`, `docs`, `refactor`, `deps`.

@@ -5,6 +5,7 @@ import { defineTool, type ToolModule } from "../core/types.js";
 import { ok, fail } from "../core/result.js";
 import { createCheckpoint, restoreCheckpoint, listCheckpoints } from "./lib/checkpoints.js";
 import { parseMultiFilePatch, parseHunks, applyHunksToText } from "./lib/patch.js";
+import { runDiagnostics } from "./lib/diagnostics.js";
 
 const IGNORED_DIRS = new Set([
   "node_modules",
@@ -432,6 +433,9 @@ export const editFilesTool = defineTool({
           } else if (op.op === "undo") {
             if (!op.checkpoint_id) throw new Error("checkpoint_id is required for 'undo' operation");
             const res = await restoreCheckpoint(ctx.config, op.checkpoint_id);
+            for (const p of res.restoredFiles) {
+              affectedPaths.add(p);
+            }
             results.push({
               op: "undo",
               checkpoint_id: res.id,
@@ -448,9 +452,21 @@ export const editFilesTool = defineTool({
         throw err;
       }
 
-      return ok("edit_files", `Applied ${results.length} operation(s)`, {
+      const diagnostics = await runDiagnostics(Array.from(affectedPaths), ctx.workspace.active());
+      const errorCount = diagnostics.filter((d) => d.severity === "error").length;
+      const hint = errorCount > 0
+        ? `${errorCount} error${errorCount === 1 ? "" : "s"} after edit — fix before continuing`
+        : undefined;
+
+      const summaryText = hint
+        ? `Applied ${results.length} operation(s) (${hint})`
+        : `Applied ${results.length} operation(s)`;
+
+      return ok("edit_files", summaryText, {
         operations: results,
         checkpoint_id: checkpointId,
+        diagnostics,
+        ...(hint ? { diagnostic_hint: hint } : {}),
       });
     } catch (err) {
       return fail("edit_files", err);
