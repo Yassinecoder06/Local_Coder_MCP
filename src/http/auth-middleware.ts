@@ -5,6 +5,9 @@
 import type { Request, Response, NextFunction } from "express";
 import type { AppConfig } from "../config.js";
 import { isValidAccessToken } from "./oauth-store.js";
+import { getEffectiveBaseUrl, getLocalBaseUrl } from "./public-url.js";
+
+export { getEffectiveBaseUrl, getLocalBaseUrl };
 
 export function getBaseUrl(req: Request, config: AppConfig): string {
   if (config.publicUrl) return config.publicUrl.replace(/\/+$/, "");
@@ -14,7 +17,7 @@ export function getBaseUrl(req: Request, config: AppConfig): string {
 }
 
 export function createAuthMiddleware(config: AppConfig) {
-  return function authMiddleware(req: Request, res: Response, next: NextFunction): void {
+  return async function authMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
     if (config.authMode === "none") {
       return next();
     }
@@ -47,7 +50,7 @@ export function createAuthMiddleware(config: AppConfig) {
     // Unauthenticated rejection
     const isOAuthEnabled = config.authMode === "oauth" || config.authMode === "both";
     if (isOAuthEnabled) {
-      const baseUrl = getBaseUrl(req, config);
+      const baseUrl = await getEffectiveBaseUrl(req, config);
       res.setHeader("WWW-Authenticate", `Bearer resource_metadata="${baseUrl}/.well-known/oauth-protected-resource"`);
       res.status(401).json({ error: "Unauthorized" });
       return;
