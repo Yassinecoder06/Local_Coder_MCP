@@ -218,13 +218,20 @@ textarea {
   position: sticky;
   z-index: 4;
   top: 0;
-  display: flex;
+  display: grid;
   height: 60px;
   align-items: center;
-  justify-content: space-between;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   padding: 0 36px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
+}
+
+.topbar-left {
+  display: flex;
+  min-width: 0;
+  grid-column: 1;
+  align-items: center;
 }
 
 .crumb {
@@ -239,6 +246,9 @@ textarea {
 
 .health-indicator {
   display: inline-flex;
+  min-width: max-content;
+  grid-column: 3;
+  justify-self: end;
   align-items: center;
   gap: 8px;
   padding: 7px 10px;
@@ -277,6 +287,8 @@ textarea {
 }
 
 .trust-badge {
+  grid-column: 2;
+  justify-self: center;
   padding: 5px 9px;
   border: 1px solid color-mix(in srgb, var(--amber), transparent 65%);
   border-radius: 999px;
@@ -875,12 +887,18 @@ textarea {
   backdrop-filter: blur(2px);
 }
 
-.trust-dialog {
-  width: min(480px, calc(100vw - 32px));
-  height: auto;
-  max-height: calc(100vh - 32px);
-  margin: auto;
+.trust-dialog,
+.confirm-dialog {
+  position: fixed;
+  top: 50dvh;
+  left: 50vw;
+  width: min(420px, calc(100vw - 32px));
+  box-sizing: border-box;
+  height: fit-content;
+  max-height: calc(100dvh - 32px);
+  margin: 0;
   border-radius: var(--radius-lg);
+  transform: translate(-50%, -50%);
 }
 
 .trust-warning {
@@ -889,6 +907,12 @@ textarea {
   border: 1px solid color-mix(in srgb, var(--red), transparent 70%);
   border-radius: var(--radius-sm);
   background: var(--red-bg);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.confirm-message {
+  margin: 18px 0 22px;
   color: var(--text);
   font-size: 13px;
 }
@@ -1577,7 +1601,6 @@ textarea {
   }
 
   .topbar {
-    justify-content: flex-start;
     padding: 0 16px;
   }
 

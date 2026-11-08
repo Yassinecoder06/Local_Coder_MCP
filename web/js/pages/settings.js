@@ -1,9 +1,10 @@
 import { request, send } from '../api.js';
-import { escapeHtml, pageHeader, toast } from '../ui.js';
+import { escapeHtml, pageHeader, toast, trapDialogFocus } from '../ui.js';
 
 let settings = {};
 let statusData = {};
 let savedApprovalMode = 'minimal';
+let trustTrigger;
 
 export async function renderSettings(view, status) {
   statusData = status;
@@ -65,6 +66,7 @@ export async function renderSettings(view, status) {
       });
       if (input.name === 'approvalMode' && input.value === 'trust'
         && savedApprovalMode !== 'trust') {
+        trustTrigger = input;
         document.querySelector('#trust-confirm-dialog').showModal();
       }
     });
@@ -92,8 +94,13 @@ async function saveSettings(view) {
 }
 
 document.querySelector('#trust-cancel').addEventListener('click', () => {
-  document.querySelector('#trust-confirm-dialog').close();
+  restoreApprovalMode();
+  document.querySelector('#trust-confirm-dialog').close('cancel');
 });
+
+const trustDialog = document.querySelector('#trust-confirm-dialog');
+trustDialog.addEventListener('cancel', restoreApprovalMode);
+trustDialog.addEventListener('keydown', trapDialogFocus);
 
 document.querySelector('#trust-confirm').addEventListener('click', async (event) => {
   const button = event.currentTarget;
@@ -114,7 +121,14 @@ document.querySelector('#trust-confirm').addEventListener('click', async (event)
   }
 });
 
-document.querySelector('#trust-confirm-dialog').addEventListener('close', () => {
+trustDialog.addEventListener('close', () => {
+  restoreApprovalMode();
+  const trigger = trustTrigger;
+  trustTrigger = undefined;
+  if (trigger?.isConnected) setTimeout(() => trigger.focus(), 0);
+});
+
+function restoreApprovalMode() {
   if (savedApprovalMode === 'trust') return;
   const selected = document.querySelector(
     `input[name="approvalMode"][value="${savedApprovalMode}"]`,
@@ -124,4 +138,4 @@ document.querySelector('#trust-confirm-dialog').addEventListener('close', () => 
   selected.closest('.radio-cards').querySelectorAll('.radio-card').forEach((card) => {
     card.classList.toggle('selected', card.querySelector('input').checked);
   });
-});
+}
