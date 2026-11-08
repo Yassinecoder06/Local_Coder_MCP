@@ -27,7 +27,7 @@ export function setRouteListener(onRoute) {
     document.querySelectorAll('[data-route]').forEach((link) => {
       link.classList.toggle('active', link.dataset.route === route);
     });
-    document.querySelector('.sidebar').classList.remove('open');
+    document.dispatchEvent(new CustomEvent('navigation:change', { detail: { route } }));
     onRoute(route);
   };
 
