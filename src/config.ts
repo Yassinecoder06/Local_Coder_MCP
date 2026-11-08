@@ -32,6 +32,7 @@ const Env = z.object({
   PUBLIC_URL: z.string().default(""),
   /** cloudflared metrics base (e.g. http://tunnel:2000); when set and PUBLIC_URL is empty, the quick-tunnel URL is auto-discovered from <base>/quicktunnel. */
   TUNNEL_METRICS_URL: z.string().default(""),
+  CHROMIUM_PATH: z.string().default("/usr/bin/chromium"),
   /** token = URL/bearer token only; oauth = OAuth 2.1 + DCR only; both = either (default); none = no auth (local only!). */
   AUTH_MODE: z.enum(["token", "oauth", "both", "none"]).default("both"),
   WORKSPACE_ROOTS: z.string().optional(),
@@ -64,6 +65,7 @@ export interface AppConfig {
   mcpToken: string;
   publicUrl: string;
   tunnelMetricsUrl: string;
+  chromiumPath: string;
   authMode: "token" | "oauth" | "both" | "none";
   workspaceRoots: string[];
   defaultWorkspace: string;
@@ -98,6 +100,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     mcpToken: e.MCP_TOKEN.trim(),
     publicUrl: e.PUBLIC_URL.replace(/\/+$/, ""),
     tunnelMetricsUrl: e.TUNNEL_METRICS_URL.replace(/\/+$/, ""),
+    chromiumPath: e.CHROMIUM_PATH,
     authMode: e.AUTH_MODE,
     workspaceRoots,
     defaultWorkspace: e.DEFAULT_WORKSPACE ? path.resolve(e.DEFAULT_WORKSPACE) : workspaceRoots[0],

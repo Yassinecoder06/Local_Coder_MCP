@@ -37,7 +37,25 @@ set_env PROJECTS_DIR "$projects_dir"
 sed -i '/^UID=/d; /^GID=/d' .env
 set_env HOST_UID "$(id -u)"
 set_env HOST_GID "$(id -g)"
+
+herdr_bin=$(get_env HERDR_BIN)
+if [[ -z "$herdr_bin" || ! -x "$herdr_bin" ]]; then
+  if [[ -x "$HOME/.local/bin/herdr" ]]; then herdr_bin="$HOME/.local/bin/herdr"
+  else herdr_bin=$(command -v herdr || true)
+  fi
+fi
+if [[ -n "$herdr_bin" && -x "$herdr_bin" && -S "$HOME/.config/herdr/herdr.sock" ]]; then
+  set_env HERDR_BIN "$herdr_bin"
+  set_env COMPOSE_FILE "compose.yaml:compose.host-tools.yaml"
+  herdr_enabled=true
+else
+  set_env HERDR_BIN ""
+  set_env COMPOSE_FILE "compose.yaml"
+  herdr_enabled=false
+fi
+
 mkdir -p data
+if [[ "$herdr_enabled" == true ]]; then echo "herdr integration: enabled"; else echo "herdr integration: disabled"; fi
 docker compose up -d --build
 echo
 echo "Local Coder MCP is starting. Admin: http://localhost:8788"

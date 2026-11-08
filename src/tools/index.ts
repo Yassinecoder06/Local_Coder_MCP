@@ -8,6 +8,7 @@ import gitTools from "./git.js";
 import skillsTools from "./skills.js";
 import commandsTools from "./commands.js";
 import systemTools from "./system.js";
+import browserTools from "./browser.js";
 
 export const ESSENTIAL_TOOLS = new Set<string>([
   "workspace_info",
@@ -27,6 +28,7 @@ export const ESSENTIAL_TOOLS = new Set<string>([
   "commands_list",
   "command_run",
   "fetch_url",
+  "browser_check",
   "status",
 ]);
 
@@ -39,6 +41,7 @@ const modules: ToolModule[] = [
   skillsTools,
   commandsTools,
   systemTools,
+  browserTools,
 ];
 
 export default modules;

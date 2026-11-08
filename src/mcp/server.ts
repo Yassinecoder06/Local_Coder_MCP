@@ -29,6 +29,7 @@ export const ESSENTIAL_TOOLS = new Set([
   "commands_list",
   "command_run",
   "fetch_url",
+  "browser_check",
   "status",
 ]);
 

@@ -17,7 +17,7 @@ temp_dir=$(mktemp -d)
 fixture=$(mktemp "$projects_dir/.local-coder-e2e.XXXXXX")
 headers="$temp_dir/headers"
 cleanup() {
-  docker compose -p "$project" --env-file .env -f compose.yaml down --volumes --remove-orphans >/dev/null 2>&1 || true
+  docker compose -p "$project" --env-file .env down --volumes --remove-orphans >/dev/null 2>&1 || true
   rm -f "$fixture"
   rm -rf "$temp_dir"
 }
@@ -26,7 +26,7 @@ printf 'Local Coder MCP e2e fixture\n' >"$fixture"
 
 # The isolated project name, ports, and data path leave the user's running stack intact.
 export PORT=18787 ADMIN_PORT=18788 DATA_VOLUME="$temp_dir/data"
-compose() { docker compose -p "$project" --env-file .env -f compose.yaml "$@"; }
+compose() { docker compose -p "$project" --env-file .env "$@"; }
 compose build
 compose up -d
 
@@ -58,13 +58,20 @@ echo "$initialize" | jq -e '.result.serverInfo.name or .result.protocolVersion' 
 echo "MCP initialize: ok"
 rpc '{"jsonrpc":"2.0","method":"notifications/initialized"}' >/dev/null
 tools=$(json_response "$(rpc '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')")
-echo "$tools" | jq -e '[.result.tools[].name] | index("status") != null and index("read") != null' >/dev/null
+echo "$tools" | jq -e '[.result.tools[].name] | index("status") != null and index("read") != null and index("browser_check") != null' >/dev/null
 status=$(json_response "$(rpc '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"status","arguments":{}}}')")
 echo "$status" | jq -e '.result and (.error | not) and (.result.isError != true)' >/dev/null
 echo "MCP tools/call status: ok"
 read_result=$(json_response "$(rpc "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"read\",\"arguments\":{\"paths\":[\"$fixture\"]}}}")")
 echo "$read_result" | jq -e '.result and (.error | not) and (.result.isError != true) and ((.result | tostring) | contains("Local Coder MCP e2e fixture"))' >/dev/null
 echo "MCP tools/call read: ok"
+browser_result=$(json_response "$(rpc '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"browser_check","arguments":{"url":"http://127.0.0.1:8788/"}}}')")
+if ! echo "$browser_result" | jq -e '.result.content | any(.[]; .type == "image" and .mimeType == "image/png")' >/dev/null; then
+  echo "$browser_result" | jq 'del(.result.content[]?.data)' >&2 || echo "$browser_result" >&2
+  echo "MCP browser_check did not return an image block." >&2
+  exit 1
+fi
+echo "MCP browser_check screenshot: ok"
 curl --fail --silent --show-error "http://127.0.0.1:${ADMIN_PORT}/api/status" | jq -e '.version and .endpoints' >/dev/null
 echo "Admin API: ok"
 echo "E2E smoke test passed."
