@@ -179,6 +179,18 @@ function escapeHtml(str: string): string {
   });
 }
 
+/** Rejects unknown clients, unregistered redirect URIs and requests without PKCE (OAuth 2.1). */
+function authorizeRequestError(
+  client: { redirectUris: string[] } | undefined,
+  redirectUri: string,
+  codeChallenge: string | undefined
+): string | undefined {
+  if (!client) return "Unknown client_id. Register the client first.";
+  if (!client.redirectUris.includes(redirectUri)) return "redirect_uri is not registered for this client.";
+  if (!codeChallenge) return "PKCE code_challenge is required.";
+  return undefined;
+}
+
 export function createOAuthRouter(config: AppConfig): Router {
   const router = Router();
 
@@ -247,6 +259,11 @@ export function createOAuthRouter(config: AppConfig): Router {
     }
 
     const client = getOAuthClient(clientId);
+    const authError = authorizeRequestError(client, redirectUri, codeChallenge);
+    if (authError) {
+      res.status(400).send(authError);
+      return;
+    }
     const clientName = client?.clientName || clientId;
 
     // Check if client is already remembered/approved
@@ -287,6 +304,11 @@ export function createOAuthRouter(config: AppConfig): Router {
     }
 
     const client = getOAuthClient(client_id);
+    const authError = authorizeRequestError(client, redirect_uri, code_challenge);
+    if (authError) {
+      res.status(400).send(authError);
+      return;
+    }
     const clientName = client?.clientName || client_id;
 
     // Validate access key against MCP_TOKEN

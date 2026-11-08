@@ -245,6 +245,27 @@ describe("Core Server Architecture", () => {
       assert.ok(authCode, "Must receive auth code in redirect");
     });
 
+    it("rejects an approved client sending codes to an unregistered redirect_uri", async () => {
+      const query = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: "https://attacker.example/steal",
+        code_challenge: codeChallenge,
+        code_challenge_method: "S256",
+      });
+      const res = await fetch(`${mcpBaseUrl}/oauth/authorize?${query}`, { redirect: "manual" });
+      assert.equal(res.status, 400);
+      assert.equal(res.headers.get("location"), null);
+    });
+
+    it("rejects authorize requests without PKCE", async () => {
+      const query = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: "https://example.com/oauth/callback",
+      });
+      const res = await fetch(`${mcpBaseUrl}/oauth/authorize?${query}`, { redirect: "manual" });
+      assert.equal(res.status, 400);
+    });
+
     it("exchanges code for tokens using S256 PKCE (POST /oauth/token)", async () => {
       const body = {
         grant_type: "authorization_code",
