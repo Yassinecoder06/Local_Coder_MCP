@@ -10,6 +10,7 @@ export interface Settings {
   disabledSkills: string[];
   approvalMode?: "trust" | "minimal" | "standard";
   toolProfile?: "essential" | "full";
+  lastWorkspace?: string;
 }
 
 let activeSettings: Settings = {
@@ -31,6 +32,7 @@ export function initSettings(dataDir: string, defaults?: Partial<Settings>): Set
         disabledSkills: Array.isArray(parsed.disabledSkills) ? parsed.disabledSkills : [],
         approvalMode: parsed.approvalMode ?? defaults?.approvalMode,
         toolProfile: parsed.toolProfile ?? defaults?.toolProfile,
+        lastWorkspace: parsed.lastWorkspace ?? defaults?.lastWorkspace,
       };
       return activeSettings;
     }
@@ -43,6 +45,7 @@ export function initSettings(dataDir: string, defaults?: Partial<Settings>): Set
     disabledSkills: defaults?.disabledSkills ?? [],
     approvalMode: defaults?.approvalMode,
     toolProfile: defaults?.toolProfile,
+    lastWorkspace: defaults?.lastWorkspace,
   };
   saveSettingsSync();
   return activeSettings;
@@ -66,6 +69,7 @@ export function getSettings(): Settings {
     disabledSkills: [...activeSettings.disabledSkills],
     approvalMode: activeSettings.approvalMode,
     toolProfile: activeSettings.toolProfile,
+    lastWorkspace: activeSettings.lastWorkspace,
   };
 }
 
@@ -75,6 +79,7 @@ export async function updateSettings(patch: Partial<Settings>): Promise<Settings
     disabledSkills: patch.disabledSkills !== undefined ? [...patch.disabledSkills] : activeSettings.disabledSkills,
     approvalMode: patch.approvalMode !== undefined ? patch.approvalMode : activeSettings.approvalMode,
     toolProfile: patch.toolProfile !== undefined ? patch.toolProfile : activeSettings.toolProfile,
+    lastWorkspace: "lastWorkspace" in patch ? patch.lastWorkspace : activeSettings.lastWorkspace,
   };
   saveSettingsSync();
   return getSettings();

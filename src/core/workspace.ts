@@ -4,6 +4,7 @@
  * Absolute paths are allowed anywhere the process can see (inside Docker that is
  * only the mounted project folders).
  */
+import fs from "node:fs";
 import path from "node:path";
 
 export interface Workspace {
@@ -18,7 +19,33 @@ export interface Workspace {
   display(abs: string): string;
 }
 
-export function createWorkspace(roots: string[], initial: string): Workspace {
+export function resolveInitialWorkspace(
+  roots: string[],
+  defaultWorkspace: string,
+  lastWorkspace?: string
+): string {
+  if (lastWorkspace && typeof lastWorkspace === "string" && lastWorkspace.trim().length > 0) {
+    try {
+      const abs = path.resolve(lastWorkspace);
+      if (fs.existsSync(abs) && fs.statSync(abs).isDirectory()) {
+        const resolvedRoots = roots.map((r) => path.resolve(r));
+        const allowed = resolvedRoots.some(
+          (r) => abs === r || abs.startsWith(r.endsWith(path.sep) ? r : r + path.sep)
+        );
+        if (allowed) {
+          return abs;
+        }
+      }
+    } catch {}
+  }
+  return path.resolve(defaultWorkspace);
+}
+
+export function createWorkspace(
+  roots: string[],
+  initial: string,
+  onActiveChanged?: (newActive: string) => void
+): Workspace {
   const resolvedRoots = roots.map((r) => path.resolve(r));
   let current = path.resolve(initial);
 
@@ -32,6 +59,7 @@ export function createWorkspace(roots: string[], initial: string): Workspace {
       );
       if (!allowed) throw new Error(`Not inside a workspace root: ${abs}. Roots: ${resolvedRoots.join(", ")}`);
       current = abs;
+      onActiveChanged?.(current);
       return current;
     },
     resolve: (p?: string) => (p ? path.resolve(current, p.replace(/^~(?=$|\/)/, process.env.HOME ?? "~")) : current),

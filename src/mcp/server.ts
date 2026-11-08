@@ -50,15 +50,50 @@ function summarizeArgs(args: unknown): string {
   }
 }
 
-function normalizeClientName(name?: string): string | undefined {
-  if (!name) return undefined;
-  const lower = name.toLowerCase();
-  if (lower.includes("chatgpt") || lower.includes("openai")) return "chatgpt";
-  if (lower.includes("gemini")) return "gemini";
-  return name;
+export function inferClient(
+  clientVersionName?: string,
+  headers?: { userAgent?: string; origin?: string } | Record<string, string | string[] | undefined>
+): string {
+  if (clientVersionName && clientVersionName.trim().length > 0) {
+    const trimmed = clientVersionName.trim();
+    if (/token|password|secret|key|bearer/i.test(trimmed)) {
+      return "unknown";
+    }
+    const lower = trimmed.toLowerCase();
+    if (lower.includes("chatgpt") || lower.includes("openai")) return "chatgpt";
+    if (lower.includes("gemini") || lower.includes("google")) return "gemini";
+    return trimmed;
+  }
+
+  if (!headers) return "unknown";
+
+  let userAgent = "";
+  let origin = "";
+  if ("userAgent" in headers || "origin" in headers) {
+    const h = headers as { userAgent?: string; origin?: string };
+    userAgent = h.userAgent ?? "";
+    origin = h.origin ?? "";
+  } else {
+    const raw = headers as Record<string, string | string[] | undefined>;
+    userAgent = String(raw["user-agent"] ?? raw["User-Agent"] ?? "");
+    origin = String(raw["origin"] ?? raw["Origin"] ?? "");
+  }
+
+  const combined = `${userAgent} ${origin}`.toLowerCase();
+  if (combined.includes("chatgpt") || combined.includes("openai")) {
+    return "chatgpt";
+  }
+  if (combined.includes("gemini") || combined.includes("google")) {
+    return "gemini";
+  }
+  return "unknown";
 }
 
-export async function createMcpServer(ctx: ToolContext, sessionId?: string): Promise<McpServer> {
+export async function createMcpServer(
+  ctx: ToolContext,
+  sessionId?: string,
+  getHeaders?: () => { userAgent?: string; origin?: string } | undefined
+): Promise<McpServer> {
   const instructions = await buildInstructions(ctx);
   const server = new McpServer(
     { name: "local-coder-mcp", version: ctx.config.version },
@@ -101,7 +136,8 @@ export async function createMcpServer(ctx: ToolContext, sessionId?: string): Pro
 
         // Activity logging
         const clientVersion = server.server.getClientVersion();
-        const client = normalizeClientName(clientVersion?.name);
+        const headers = extra?.requestInfo?.headers ?? getHeaders?.();
+        const client = inferClient(clientVersion?.name, headers);
         const sid = (extra?.sessionId || sessionId || "").slice(0, 8) || undefined;
 
         ctx.activity.record({
