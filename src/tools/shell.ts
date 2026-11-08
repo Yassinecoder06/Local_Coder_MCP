@@ -1,19 +1,20 @@
 import { z } from "zod";
 import { defineTool, type ToolModule } from "../core/types.js";
 import { ok, fail } from "../core/result.js";
-import { jobManager } from "./lib/jobs.js";
+import { jobManager, type RunResult } from "./lib/jobs.js";
+import { detectChecks, parseCheckErrors, type CheckResult } from "./lib/verify.js";
 
 export const runTool = defineTool({
   name: "run",
   title: "Run Shell Command",
-  description: "Run a bash shell command or stop a background job via stop_job_id. Commands returning within sync timeout return output immediately; longer processes continue in background as jobs.",
+  description: "Run a bash shell command or stop a background job via stop_job_id. Call run with verify:true after changes, and before saying a task is done. Commands returning within sync timeout return output immediately; longer processes continue in background as jobs.",
   group: "shell",
   risk: "exec",
   input: {
     command: z
       .string()
       .optional()
-      .describe("Shell command string to execute in bash (required unless stop_job_id is provided)"),
+      .describe("Shell command string to execute in bash (required unless stop_job_id or verify is provided)"),
     stop_job_id: z
       .string()
       .optional()
@@ -23,6 +24,11 @@ export const runTool = defineTool({
       .default("SIGTERM")
       .optional()
       .describe("Signal to deliver when stopping a job via stop_job_id (default SIGTERM)"),
+    verify: z
+      .boolean()
+      .default(false)
+      .optional()
+      .describe("When true and command is empty, auto-detect and run project validation checks (typecheck, lint, test, build)"),
     cwd: z
       .string()
       .optional()
@@ -43,8 +49,85 @@ export const runTool = defineTool({
         });
       }
 
+      if (args.verify && !args.command) {
+        const cwd = ctx.workspace.resolve(args.cwd);
+        const syncMs = ctx.config.shellSyncMs;
+        const timeoutMs = args.timeout_ms ?? ctx.config.shellTimeoutMs;
+        const detected = await detectChecks(cwd);
+
+        if (detected.length === 0) {
+          return ok("run", "No verification checks detected for this workspace", {
+            checks: [],
+            summary: "No verification checks detected",
+            ok: true,
+          });
+        }
+
+        const startTime = Date.now();
+        const results: CheckResult[] = [];
+        let backgroundJobResult: RunResult | null = null;
+
+        for (let i = 0; i < detected.length; i++) {
+          const check = detected[i];
+          const elapsed = Date.now() - startTime;
+          const remainingSync = Math.max(100, syncMs - elapsed);
+
+          const checkStart = Date.now();
+          const jobRes = await jobManager.startJob(check.command, cwd, remainingSync, timeoutMs);
+          const duration_ms = Date.now() - checkStart;
+
+          if (jobRes.running) {
+            backgroundJobResult = jobRes;
+            break;
+          }
+
+          const isOk = jobRes.exit_code === 0;
+          const output = jobRes.output || "";
+          const errors = parseCheckErrors(output);
+          const lines = output.trim().split("\n");
+          const tail = lines.slice(-20).join("\n");
+
+          results.push({
+            name: check.name,
+            command: check.command,
+            ok: isOk,
+            exit_code: jobRes.exit_code ?? (isOk ? 0 : 1),
+            duration_ms,
+            errors,
+            tail,
+          });
+        }
+
+        if (backgroundJobResult) {
+          return ok(
+            "run",
+            `Verification check exceeded sync timeout and continues in background (job: ${backgroundJobResult.job_id})`,
+            {
+              running: true,
+              job_id: backgroundJobResult.job_id,
+              pid: backgroundJobResult.pid,
+              output_so_far: backgroundJobResult.output_so_far,
+              completed_checks: results,
+              note: `Use 'job' tool with job_id "${backgroundJobResult.job_id}" to check status or output, and 'run' with stop_job_id to terminate.`,
+            }
+          );
+        }
+
+        const failed = results.filter((r) => !r.ok);
+        const summary =
+          failed.length === 0
+            ? `All ${results.length} checks passed`
+            : `${failed.length} of ${results.length} failed: ${failed.map((f) => f.name).join(", ")}`;
+
+        return ok("run", summary, {
+          checks: results,
+          summary,
+          ok: failed.length === 0,
+        });
+      }
+
       if (!args.command) {
-        return fail("run", "Either command or stop_job_id must be provided");
+        return fail("run", "Either command, verify:true, or stop_job_id must be provided");
       }
 
       const cwd = ctx.workspace.resolve(args.cwd);
