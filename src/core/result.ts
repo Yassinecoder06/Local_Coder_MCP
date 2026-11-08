@@ -25,13 +25,14 @@ export const RESULT_OUTPUT_SCHEMA = {
  * Convert to the MCP wire format. Text content carries the full JSON so clients
  * that ignore structuredContent (Gemini) still see the data.
  */
-export function toCallToolResult(result: ToolResult, maxBytes: number): CallToolResult {
+export function toCallToolResult(withImages: ToolResult, maxBytes: number): CallToolResult {
+  const { images, ...result } = withImages;
   let text = JSON.stringify(result);
   if (text.length > maxBytes) {
     text = JSON.stringify({ ...result, data: "[truncated — narrow the request]", truncated: true }).slice(0, maxBytes);
   }
   return {
-    content: [{ type: "text", text }],
+    content: [{ type: "text", text }, ...(images ?? []).map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }))],
     structuredContent: result as unknown as Record<string, unknown>,
     isError: !result.ok,
   };

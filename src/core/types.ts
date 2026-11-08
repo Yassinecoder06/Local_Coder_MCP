@@ -24,6 +24,8 @@ export interface ToolResult<T = unknown> {
   summary: string;
   data?: T;
   error?: string;
+  /** Optional images (e.g. browser screenshots) sent as MCP image content; never put in text/structuredContent. */
+  images?: { data: string; mimeType: string }[];
 }
 
 /** Everything a tool handler may use. Built once per MCP session. */
