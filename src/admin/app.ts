@@ -360,7 +360,28 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
 
   app.patch("/api/settings", async (req: Request, res: Response) => {
     try {
+      const { approvalMode, toolProfile } = req.body || {};
+
+      if (approvalMode !== undefined) {
+        if (!["trust", "minimal", "standard"].includes(approvalMode)) {
+          res.status(400).json({ error: "Invalid approvalMode. Expected 'trust', 'minimal', or 'standard'." });
+          return;
+        }
+      }
+
+      if (toolProfile !== undefined) {
+        if (!["essential", "full"].includes(toolProfile)) {
+          res.status(400).json({ error: "Invalid toolProfile. Expected 'essential' or 'full'." });
+          return;
+        }
+      }
+
       const updated = await updateSettings(req.body || {});
+
+      if (approvalMode !== undefined) {
+        await deps.sessionManager.applyApprovalModeLive(approvalMode);
+      }
+
       res.json(updated);
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
