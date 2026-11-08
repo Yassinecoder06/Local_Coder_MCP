@@ -13,8 +13,7 @@ logs:
 	docker compose logs -f --tail=100
 
 tunnel:
-	docker compose --profile tunnel up -d tunnel
-	./scripts/tunnel-url.sh
+	docker compose --profile tunnel up -d
 
 e2e:
 	./scripts/e2e.sh

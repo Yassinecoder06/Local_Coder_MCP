@@ -33,11 +33,14 @@ if [[ "$yes_mode" != true && -t 0 ]]; then
 fi
 projects_dir=$(mkdir -p "$projects_dir" && cd "$projects_dir" && pwd -P)
 set_env PROJECTS_DIR "$projects_dir"
-set_env UID "$(id -u)"
-set_env GID "$(id -g)"
+# Remove legacy names that collide with Bash's readonly UID/GID variables.
+sed -i '/^UID=/d; /^GID=/d' .env
+set_env HOST_UID "$(id -u)"
+set_env HOST_GID "$(id -g)"
 mkdir -p data
 docker compose up -d --build
 echo
 echo "Local Coder MCP is starting. Admin: http://localhost:8788"
 echo "Open the admin page to copy the MCP connection details."
-echo "Set PUBLIC_URL in .env after starting a public tunnel, then run: docker compose up -d mcp"
+echo "For a public Quick Tunnel, run: docker compose --profile tunnel up -d"
+echo "Its URL will appear automatically in the admin UI. Set PUBLIC_URL only for named or third-party tunnels."
