@@ -21,6 +21,8 @@ const bool = (fallback: boolean) =>
 
 const Env = z.object({
   PORT: z.coerce.number().int().default(8787),
+  /** Port the MCP endpoint is published on, on the host (differs from PORT inside Docker). Defaults to PORT. */
+  HOST_PORT: z.coerce.number().int().optional(),
   ADMIN_PORT: z.coerce.number().int().default(8788),
   HOST: z.string().default("127.0.0.1"),
   ADMIN_HOST: z.string().default("127.0.0.1"),
@@ -55,6 +57,7 @@ const Env = z.object({
 
 export interface AppConfig {
   port: number;
+  hostPort: number;
   adminPort: number;
   host: string;
   adminHost: string;
@@ -88,6 +91,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const workspaceRoots = roots.length ? roots : [process.cwd()];
   return {
     port: e.PORT,
+    hostPort: e.HOST_PORT ?? e.PORT,
     adminPort: e.ADMIN_PORT,
     host: e.HOST,
     adminHost: e.ADMIN_HOST,
