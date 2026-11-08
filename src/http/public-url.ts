@@ -21,11 +21,11 @@ export function getDisplayHost(host: string): string {
 }
 
 /**
- * Returns the local base URL using the display host.
+ * Returns the local base URL using the display host and published host port.
  */
 export function getLocalBaseUrl(config: AppConfig): string {
   const host = getDisplayHost(config.host);
-  return `http://${host}:${config.port}`;
+  return `http://${host}:${config.hostPort}`;
 }
 
 /**

@@ -33,6 +33,7 @@ describe("Core Server Architecture", () => {
     tmpDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "local-coder-mcp-test-"));
     config = {
       port: 0,
+      hostPort: 0,
       adminPort: 0,
       host: "127.0.0.1",
       adminHost: "127.0.0.1",
@@ -86,6 +87,8 @@ describe("Core Server Architecture", () => {
     await new Promise<void>((resolve) => {
       mcpServer.listen(0, "127.0.0.1", () => {
         mcpPort = (mcpServer.address() as any).port;
+        config.port = mcpPort;
+        config.hostPort = mcpPort;
         mcpBaseUrl = `http://127.0.0.1:${mcpPort}`;
         resolve();
       });
@@ -648,6 +651,69 @@ describe("Core Server Architecture", () => {
       });
       const data3 = await res3.json();
       assert.equal(data3.endpoints.public, "https://different-tunnel.trycloudflare.com");
+    });
+
+    it("uses hostPort when port and hostPort differ (Docker published port mapping)", async () => {
+      config.host = "0.0.0.0";
+      config.port = mcpPort;
+      config.hostPort = 3000;
+      config.publicUrl = "";
+      config.tunnelMetricsUrl = "";
+      clearPublicUrlCache();
+
+      // Check /api/status
+      const statusRes = await fetch(`${adminBaseUrl}/api/status`, {
+        headers: { Host: `localhost:${adminPort}` },
+      });
+      assert.equal(statusRes.status, 200);
+      const statusData = await statusRes.json();
+      assert.equal(statusData.endpoints.local, "http://localhost:3000", "endpoints.local must use hostPort");
+      assert.equal(
+        statusData.endpoints.mcpUrlWithToken,
+        `http://localhost:3000/mcp/${config.mcpToken}`,
+        "mcpUrlWithToken fallback must use hostPort"
+      );
+      assert.equal(statusData.endpoints.oauthIssuer, "http://localhost:3000", "oauthIssuer fallback must use hostPort");
+
+      // Check /api/connect
+      const connectRes = await fetch(`${adminBaseUrl}/api/connect`, {
+        headers: { Host: `localhost:${adminPort}` },
+      });
+      assert.equal(connectRes.status, 200);
+      const connectData = await connectRes.json();
+      assert.equal(connectData.chatgpt.url, `http://localhost:3000/mcp/${config.mcpToken}`);
+      assert.equal(connectData.gemini.url, "http://localhost:3000/mcp");
+
+      // Reset
+      config.host = "127.0.0.1";
+      config.hostPort = mcpPort;
+    });
+
+    it("GET /api/health proxies MCP /health and reports mcpReachable", async () => {
+      // 1. Healthy MCP server
+      config.port = mcpPort;
+      const res = await fetch(`${adminBaseUrl}/api/health`, {
+        headers: { Host: `localhost:${adminPort}` },
+      });
+      assert.equal(res.status, 200);
+      const data = await res.json();
+      assert.equal(data.ok, true);
+      assert.equal(data.mcpReachable, true);
+      assert.equal(data.version, "1.0.0");
+      assert.ok(typeof data.uptime === "number");
+
+      // 2. Unreachable MCP server (simulate down port)
+      config.port = 59999;
+      const downRes = await fetch(`${adminBaseUrl}/api/health`, {
+        headers: { Host: `localhost:${adminPort}` },
+      });
+      assert.equal(downRes.status, 503);
+      const downData = await downRes.json();
+      assert.equal(downData.ok, false);
+      assert.equal(downData.mcpReachable, false);
+
+      // Restore port
+      config.port = mcpPort;
     });
   });
 });

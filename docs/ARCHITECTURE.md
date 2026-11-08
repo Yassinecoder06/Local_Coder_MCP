@@ -58,6 +58,7 @@ Static UI served from `web/` at `/`. No auth (bound to host loopback), but rejec
 | method & path | response / body |
 |---|---|
 | `GET /api/status` | `{ version, uptimeSec, authMode, toolProfile, approvalMode, sessions, workspaceRoots, defaultWorkspace, endpoints: { local, public, mcpUrlWithToken, oauthIssuer } }` (`mcpUrlWithToken` = `<public or local>/mcp/<token>`) |
+| `GET /api/health` | `{ ok, version, uptime, mcpReachable }` (proxies MCP `/health`) |
 | `GET /api/connect` | `{ chatgpt: { url, steps: string[] }, gemini: { url, steps: string[] }, token }` |
 | `POST /api/token/rotate` | `{ token }` (persist to DATA_DIR/token, invalidates OAuth tokens) |
 | `GET /api/tools` | `[{ name, title, description, group, risk, enabled, profile: "essential"|"full" }]` |

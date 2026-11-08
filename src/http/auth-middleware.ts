@@ -5,14 +5,14 @@
 import type { Request, Response, NextFunction } from "express";
 import type { AppConfig } from "../config.js";
 import { isValidAccessToken } from "./oauth-store.js";
-import { getEffectiveBaseUrl, getLocalBaseUrl } from "./public-url.js";
+import { getDisplayHost, getEffectiveBaseUrl, getLocalBaseUrl } from "./public-url.js";
 
 export { getEffectiveBaseUrl, getLocalBaseUrl };
 
 export function getBaseUrl(req: Request, config: AppConfig): string {
   if (config.publicUrl) return config.publicUrl.replace(/\/+$/, "");
   const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "http";
-  const host = (req.headers["x-forwarded-host"] as string) || req.get("host") || `${config.host}:${config.port}`;
+  const host = (req.headers["x-forwarded-host"] as string) || req.get("host") || `${getDisplayHost(config.host)}:${config.hostPort}`;
   return `${proto}://${host}`;
 }
 
