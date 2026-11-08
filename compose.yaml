@@ -1,0 +1,42 @@
+services:
+  mcp:
+    build: .
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      ADMIN_HOST: 0.0.0.0
+      WORKSPACE_ROOTS: ${PROJECTS_DIR:?Set PROJECTS_DIR in .env}
+      DATA_DIR: /data
+      BUILTIN_SKILLS_DIR: /app/skills
+      USER_SKILLS_DIR: /data/skills
+      BUILTIN_COMMANDS_DIR: /app/commands
+      USER_COMMANDS_DIR: /data/commands
+    ports:
+      - "127.0.0.1:${ADMIN_PORT:-8788}:8788"
+      - "127.0.0.1:${PORT:-8787}:8787"
+    volumes:
+      - ./data:/data
+      - ${PROJECTS_DIR:?Set PROJECTS_DIR in .env}:${PROJECTS_DIR:?Set PROJECTS_DIR in .env}
+      - ${HOME}/.gitconfig:/home/app/.gitconfig:ro
+    restart: unless-stopped
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    profiles: [tunnel]
+    depends_on:
+      mcp:
+        condition: service_healthy
+    command: ["tunnel", "--metrics", "0.0.0.0:2000", "--url", "http://mcp:8787"]
+    restart: unless-stopped
+
+  named-tunnel:
+    image: cloudflare/cloudflared:latest
+    profiles: [named-tunnel]
+    depends_on:
+      mcp:
+        condition: service_healthy
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    command: ["tunnel", "run"]
+    restart: unless-stopped
