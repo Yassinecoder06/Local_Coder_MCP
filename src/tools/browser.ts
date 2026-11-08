@@ -4,11 +4,20 @@
  */
 import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { z } from "zod";
 import { defineTool, type ToolModule } from "../core/types.js";
 import { ok, fail } from "../core/result.js";
+
+
+/** A writable per-process home for Chromium, independent of the container's HOME. */
+function chromiumHomeEnv(): Record<string, string> {
+  const home = path.join(os.tmpdir(), "local-coder-chromium");
+  for (const dir of ["", ".config", ".cache"]) fs.mkdirSync(path.join(home, dir), { recursive: true });
+  return { HOME: home, XDG_CONFIG_HOME: path.join(home, ".config"), XDG_CACHE_HOME: path.join(home, ".cache") };
+}
 
 export function getChromiumPath(): string {
   return process.env.CHROMIUM_PATH || "/usr/bin/chromium";
@@ -169,6 +178,9 @@ export const browserCheckTool = defineTool({
             executablePath: chromiumPath,
             headless: true,
             args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+            // HOME may be unwritable inside the container (e.g. the herdr override maps it to a
+            // root-owned mount point); Chromium's profile and crashpad need a writable home.
+            env: { ...process.env, ...chromiumHomeEnv() },
           });
 
           const isMobile = args.viewport === "mobile";
