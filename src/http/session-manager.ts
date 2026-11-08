@@ -1,0 +1,221 @@
+/**
+ * Owned by agy1. Manages stateful McpServer sessions with transparent recovery.
+ */
+import crypto from "node:crypto";
+import type { Request, Response } from "express";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import {
+  isInitializeRequest,
+  LATEST_PROTOCOL_VERSION,
+  SUPPORTED_PROTOCOL_VERSIONS,
+} from "@modelcontextprotocol/sdk/types.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { AppConfig } from "../config.js";
+import type { ActivityLog } from "../core/activity.js";
+import type { CommandRegistry } from "../commands/registry.js";
+import type { SkillRegistry } from "../skills/registry.js";
+import { createWorkspace } from "../core/workspace.js";
+import type { ToolContext } from "../core/types.js";
+import { createMcpServer } from "../mcp/server.js";
+
+const SESSION_TTL_MS = 60 * 60 * 1000; // 1 hour idle TTL
+const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+export interface McpSession {
+  sessionId: string;
+  transport: StreamableHTTPServerTransport;
+  server: McpServer;
+  context: ToolContext;
+  createdAt: number;
+  lastAccessedAt: number;
+}
+
+export interface SessionManagerDependencies {
+  config: AppConfig;
+  activity: ActivityLog;
+  skills: SkillRegistry;
+  commands: CommandRegistry;
+}
+
+function negotiateProtocolVersion(requested?: string): string {
+  if (requested && (SUPPORTED_PROTOCOL_VERSIONS as readonly string[]).includes(requested)) {
+    return requested;
+  }
+  return LATEST_PROTOCOL_VERSION;
+}
+
+function patchSessionHeaders(req: Request, sessionId: string, protocolVersion: string): void {
+  req.headers["mcp-session-id"] = sessionId;
+  req.headers["mcp-protocol-version"] = protocolVersion;
+
+  const drop = new Set(["mcp-session-id", "mcp-protocol-version"]);
+  const raw: string[] = [];
+  const existing = req.rawHeaders || [];
+  for (let i = 0; i < existing.length; i += 2) {
+    if (drop.has(existing[i]?.toLowerCase())) continue;
+    raw.push(existing[i], existing[i + 1]);
+  }
+  raw.push("mcp-session-id", sessionId, "mcp-protocol-version", protocolVersion);
+  req.rawHeaders = raw;
+}
+
+export class SessionManager {
+  private sessions = new Map<string, McpSession>();
+  private sessionOpChains = new Map<string, Promise<void>>();
+  private cleanupTimer: NodeJS.Timeout | null = null;
+
+  constructor(private deps: SessionManagerDependencies) {}
+
+  public get(sessionId: string): McpSession | undefined {
+    return this.sessions.get(sessionId);
+  }
+
+  public touch(sessionId: string): void {
+    const s = this.sessions.get(sessionId);
+    if (s) {
+      s.lastAccessedAt = Date.now();
+    }
+  }
+
+  public count(): number {
+    return this.sessions.size;
+  }
+
+  public async buildSession(forcedSessionId?: string, clientInfo?: { name: string; version: string }): Promise<McpSession> {
+    const sessionId = forcedSessionId || crypto.randomUUID();
+    const workspace = createWorkspace(this.deps.config.workspaceRoots, this.deps.config.defaultWorkspace);
+    const context: ToolContext = {
+      config: this.deps.config,
+      workspace,
+      skills: this.deps.skills,
+      commands: this.deps.commands,
+      activity: this.deps.activity,
+    };
+
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => sessionId,
+      enableJsonResponse: true,
+      onsessioninitialized: (sid) => {
+        const existing = this.sessions.get(sid);
+        if (existing) {
+          existing.lastAccessedAt = Date.now();
+        }
+      },
+      onsessionclosed: (sid) => {
+        if (sid) {
+          this.removeSession(sid, "client closed");
+        }
+      },
+    });
+
+    const server = await createMcpServer(context, sessionId);
+    await server.connect(transport);
+
+    if (forcedSessionId) {
+      // Force transport session initialization for stale recovery
+      const webTransport = (transport as any)._webStandardTransport;
+      if (webTransport) {
+        webTransport.sessionId = forcedSessionId;
+        webTransport._initialized = true;
+      }
+    }
+
+    const session: McpSession = {
+      sessionId,
+      transport,
+      server,
+      context,
+      createdAt: Date.now(),
+      lastAccessedAt: Date.now(),
+    };
+
+    this.sessions.set(sessionId, session);
+    return session;
+  }
+
+  public removeSession(sessionId: string, reason: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    this.sessions.delete(sessionId);
+    this.sessionOpChains.delete(sessionId);
+    void session.transport.close().catch(() => undefined);
+  }
+
+  private async enqueueOp(sessionId: string, op: () => Promise<void>): Promise<void> {
+    const prev = this.sessionOpChains.get(sessionId) ?? Promise.resolve();
+    const run = prev.catch(() => undefined).then(op);
+    this.sessionOpChains.set(sessionId, run);
+    try {
+      await run;
+    } finally {
+      if (this.sessionOpChains.get(sessionId) === run) {
+        this.sessionOpChains.delete(sessionId);
+      }
+    }
+  }
+
+  public async handleRequest(req: Request, res: Response): Promise<void> {
+    const rawSid = req.headers["mcp-session-id"] as string | undefined;
+    const protocolVersion = negotiateProtocolVersion(req.headers["mcp-protocol-version"] as string | undefined);
+
+    // Normalize accept header so strict SDK checks won't fail
+    const accept = req.headers["accept"] || "";
+    if (!accept.includes("application/json") || !accept.includes("text/event-stream")) {
+      req.headers["accept"] = (accept ? `${accept}, ` : "") + "application/json, text/event-stream";
+    }
+
+    const isInit = isInitializeRequest(req.body);
+
+    let session: McpSession | undefined;
+
+    if (isInit) {
+      // Initialization creates a fresh session
+      session = await this.buildSession();
+    } else if (rawSid && this.sessions.has(rawSid)) {
+      // Existing session
+      session = this.sessions.get(rawSid)!;
+    } else if (rawSid && !this.sessions.has(rawSid)) {
+      // Transparent recovery: re-create session with the requested stale session ID
+      session = await this.buildSession(rawSid);
+    } else {
+      // Request without a session ID that is NOT initialize: serve with a fresh session
+      const newSid = crypto.randomUUID();
+      session = await this.buildSession(newSid);
+    }
+
+    const sid = session.sessionId;
+    this.touch(sid);
+    patchSessionHeaders(req, sid, protocolVersion);
+    res.setHeader("mcp-session-id", sid);
+
+    const execute = async () => {
+      await session!.transport.handleRequest(req, res, req.body);
+    };
+
+    // Sequential queue for POST/DELETE, concurrent for GET (SSE stream)
+    if (req.method !== "GET") {
+      await this.enqueueOp(sid, execute);
+    } else {
+      await execute();
+    }
+  }
+
+  public startCleanup(): void {
+    if (this.cleanupTimer) return;
+    this.cleanupTimer = setInterval(() => {
+      const now = Date.now();
+      for (const [sid, session] of this.sessions.entries()) {
+        if (now - session.lastAccessedAt > SESSION_TTL_MS) {
+          this.removeSession(sid, "idle TTL expired");
+        }
+      }
+    }, CLEANUP_INTERVAL_MS);
+    this.cleanupTimer.unref?.();
+  }
+
+  public stopCleanup(): void {
+    if (!this.cleanupTimer) return;
+    clearInterval(this.cleanupTimer);
+    this.cleanupTimer = null;
+  }
+}

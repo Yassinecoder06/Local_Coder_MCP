@@ -3,6 +3,9 @@
  * In-memory ring buffer of tool calls + pub/sub for the UI live feed (SSE),
  * persisted as JSONL in DATA_DIR/activity.jsonl.
  */
+import fs from "node:fs";
+import path from "node:path";
+
 export interface ActivityEntry {
   id: number;
   ts: string; // ISO time
@@ -21,16 +24,53 @@ export interface ActivityLog {
   subscribe(fn: (e: ActivityEntry) => void): () => void;
 }
 
-export function createMemoryActivityLog(max = 500): ActivityLog {
+export function createActivityLog(filePath?: string, max = 500): ActivityLog {
   const items: ActivityEntry[] = [];
   const subs = new Set<(e: ActivityEntry) => void>();
   let seq = 0;
+
+  if (filePath) {
+    try {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      if (fs.existsSync(filePath)) {
+        const lines = fs.readFileSync(filePath, "utf-8").split("\n").filter(Boolean);
+        for (const line of lines.slice(-max)) {
+          try {
+            const entry = JSON.parse(line) as ActivityEntry;
+            items.push(entry);
+            if (entry.id > seq) seq = entry.id;
+          } catch {}
+        }
+      }
+    } catch (err) {
+      console.warn("[activity] Could not load existing activity log:", err);
+    }
+  }
+
   return {
     record(entry) {
-      const e = { ...entry, id: ++seq, ts: new Date().toISOString() };
+      const e: ActivityEntry = {
+        ...entry,
+        id: ++seq,
+        ts: new Date().toISOString(),
+      };
       items.push(e);
       if (items.length > max) items.shift();
-      subs.forEach((fn) => fn(e));
+
+      subs.forEach((fn) => {
+        try {
+          fn(e);
+        } catch (err) {
+          console.warn("[activity] Error in subscriber:", err);
+        }
+      });
+
+      if (filePath) {
+        fs.appendFile(filePath, JSON.stringify(e) + "\n", (err) => {
+          if (err) console.error("[activity] Failed to append entry:", err);
+        });
+      }
+
       return e;
     },
     recent: (limit = 100) => items.slice(-limit).reverse(),
@@ -39,4 +79,8 @@ export function createMemoryActivityLog(max = 500): ActivityLog {
       return () => subs.delete(fn);
     },
   };
+}
+
+export function createMemoryActivityLog(max = 500): ActivityLog {
+  return createActivityLog(undefined, max);
 }

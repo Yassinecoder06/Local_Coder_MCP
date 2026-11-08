@@ -19,14 +19,18 @@ export interface Workspace {
 }
 
 export function createWorkspace(roots: string[], initial: string): Workspace {
+  const resolvedRoots = roots.map((r) => path.resolve(r));
   let current = path.resolve(initial);
+
   return {
-    roots,
+    roots: resolvedRoots,
     active: () => current,
     setActive(dir: string) {
-      const abs = path.resolve(current, dir);
-      const allowed = roots.some((r) => abs === r || abs.startsWith(r + path.sep));
-      if (!allowed) throw new Error(`Not inside a workspace root: ${abs}. Roots: ${roots.join(", ")}`);
+      const abs = path.isAbsolute(dir) ? path.resolve(dir) : path.resolve(current, dir);
+      const allowed = resolvedRoots.some(
+        (r) => abs === r || abs.startsWith(r.endsWith(path.sep) ? r : r + path.sep)
+      );
+      if (!allowed) throw new Error(`Not inside a workspace root: ${abs}. Roots: ${resolvedRoots.join(", ")}`);
       current = abs;
       return current;
     },
