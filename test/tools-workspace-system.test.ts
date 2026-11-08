@@ -31,17 +31,31 @@ test("workspace and system tools", async (t) => {
     assert.match(res.data.instructions, /Always write tests/);
   });
 
-  await t.test("workspace_switch changes active directory", async () => {
+  await t.test("workspace_switch changes active directory and returns absolute path with stack & git summary", async () => {
     const sub = path.join(env.workspaceDir, "subproject");
     await fs.mkdir(sub, { recursive: true });
+    await fs.writeFile(
+      path.join(sub, "package.json"),
+      JSON.stringify({ name: "sub", dependencies: { typescript: "^5.0.0" } })
+    );
 
     const switchRes = await workspaceSwitchTool.handler({ path: "subproject" }, env.ctx);
     assert.equal(switchRes.ok, true);
     assert.equal(env.workspace.active(), sub);
+    assert.equal(switchRes.data.active, sub);
+
+    // Summary must show absolute path and never just "."
+    assert.match(switchRes.summary, new RegExp(`Active workspace is now ${sub.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+    assert.ok(switchRes.data.stack.includes("typescript"));
+    assert.ok("git" in switchRes.data);
 
     // Switch back
-    await workspaceSwitchTool.handler({ path: ".." }, env.ctx);
+    const switchBackRes = await workspaceSwitchTool.handler({ path: ".." }, env.ctx);
     assert.equal(env.workspace.active(), env.workspaceDir);
+    assert.match(
+      switchBackRes.summary,
+      new RegExp(`Active workspace is now ${env.workspaceDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`)
+    );
   });
 
   await t.test("status tool returns server metadata", async () => {

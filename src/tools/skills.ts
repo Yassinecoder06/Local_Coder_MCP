@@ -5,7 +5,7 @@ import { ok, fail } from "../core/result.js";
 export const skillsListTool = defineTool({
   name: "skills_list",
   title: "List Skills",
-  description: "List available agent skills (name, description, source, files).",
+  description: "List available specialized skills with descriptions and source locations. Inspect available skills to choose relevant domain instructions.",
   group: "skills",
   risk: "read",
   input: {
@@ -31,11 +31,11 @@ export const skillsListTool = defineTool({
 export const skillLoadTool = defineTool({
   name: "skill_load",
   title: "Load Skill",
-  description: "Load a skill's full instructions (SKILL.md) or read one of its supplementary files.",
+  description: "Load full skill instructions (SKILL.md) or a referenced file from a skill. Load skills early in a task to follow recommended patterns.",
   group: "skills",
   risk: "read",
   input: {
-    name: z.string().describe("Skill name"),
+    name: z.string().describe("Skill name to load"),
     file: z
       .string()
       .optional()
@@ -80,7 +80,7 @@ export const skillLoadTool = defineTool({
 export const skillSaveTool = defineTool({
   name: "skill_save",
   title: "Save Skill",
-  description: "Create or update a user skill from chat with name, description, markdown body, and optional files.",
+  description: "Save a new or updated user skill with instructions and optional supplementary files. Use to persist reusable workflows and domain knowledge.",
   group: "skills",
   risk: "write",
   input: {
@@ -89,8 +89,8 @@ export const skillSaveTool = defineTool({
       .regex(/^[a-z0-9][a-z0-9-]{0,63}$/)
       .describe("Skill name: lowercase letters, digits, and hyphens (1-64 chars)"),
     description: z.string().describe("Short description telling when the model should use this skill"),
-    body: z.string().describe("Markdown instructions/guidelines (without frontmatter)"),
-    files: z.record(z.string(), z.string()).optional().describe("Optional extra files: relative path -> utf8 content"),
+    body: z.string().describe("Markdown instructions/guidelines without frontmatter"),
+    files: z.record(z.string(), z.string()).optional().describe("Optional extra files: relative path to utf-8 content map"),
   },
   handler: async (args, ctx) => {
     try {

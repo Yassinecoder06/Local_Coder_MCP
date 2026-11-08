@@ -113,10 +113,16 @@ async function collectFiles(dir: string, baseDir = dir): Promise<string[]> {
   return files;
 }
 
+const defaultSettings = {
+  get: () => ({ disabledSkills: [] as string[] }),
+  update: async () => {},
+};
+
 export function createSkillRegistry(
   config: AppConfig,
-  settings: { get(): { disabledSkills: string[] }; update(p: any): Promise<unknown> }
+  settings: { get(): { disabledSkills: string[] }; update(p: any): Promise<unknown> } = defaultSettings
 ): SkillRegistry {
+  const safeSettings = settings ?? defaultSettings;
   // Directory mtime cache: dirPath -> { mtimeMs: number, skills: Map<string, Skill> }
   const dirCache = new Map<string, { mtimeMs: number; skills: Map<string, Skill> }>();
 
@@ -185,7 +191,7 @@ export function createSkillRegistry(
 
   async function loadAllSkills(workspaceRoot?: string): Promise<Map<string, Skill>> {
     const activeWs = workspaceRoot ? path.resolve(workspaceRoot) : config.defaultWorkspace;
-    const disabled = new Set(settings.get().disabledSkills ?? []);
+    const disabled = new Set(safeSettings.get().disabledSkills ?? []);
     const merged = new Map<string, Skill>();
 
     // Priority order: user -> workspace -> extra -> builtin
@@ -308,7 +314,7 @@ export function createSkillRegistry(
       dirCache.delete(config.userSkillsDir);
 
       const files = await collectFiles(targetDir);
-      const disabled = new Set(settings.get().disabledSkills ?? []);
+      const disabled = new Set(safeSettings.get().disabledSkills ?? []);
 
       return {
         name: input.name,
@@ -385,13 +391,13 @@ export function createSkillRegistry(
     },
 
     async setEnabled(name: string, enabled: boolean): Promise<void> {
-      const disabled = new Set(settings.get().disabledSkills ?? []);
+      const disabled = new Set(safeSettings.get().disabledSkills ?? []);
       if (enabled) {
         disabled.delete(name);
       } else {
         disabled.add(name);
       }
-      await settings.update({ disabledSkills: Array.from(disabled) });
+      await safeSettings.update({ disabledSkills: Array.from(disabled) });
     },
   };
 }

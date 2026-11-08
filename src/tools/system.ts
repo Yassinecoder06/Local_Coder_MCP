@@ -53,7 +53,7 @@ function htmlToReadableText(html: string): string {
 export const fetchUrlTool = defineTool({
   name: "fetch_url",
   title: "Fetch URL",
-  description: "HTTP GET a web page or API URL (documentation, specs, APIs) converted to readable text/markdown.",
+  description: "HTTP GET documentation or API specifications from a URL converted to readable text. Fetch reference docs directly to avoid guessing APIs.",
   group: "system",
   risk: "read",
   input: {
@@ -115,7 +115,7 @@ export const fetchUrlTool = defineTool({
 export const statusTool = defineTool({
   name: "status",
   title: "Server Status",
-  description: "Get server version, uptime, auth mode, tool profile, approval mode, and active workspace.",
+  description: "Get server status including version, uptime, auth mode, tool profile, and active workspace paths.",
   group: "system",
   risk: "read",
   input: {},

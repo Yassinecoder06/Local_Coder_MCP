@@ -6,13 +6,13 @@ import { jobManager } from "./lib/jobs.js";
 export const runTool = defineTool({
   name: "run",
   title: "Run Shell Command",
-  description: "Run a shell command in bash. Commands finishing within sync window return output immediately; longer commands continue in background and return job_id.",
+  description: "Run a bash shell command. Commands returning within sync timeout return output immediately; longer processes continue in the background as manageable jobs.",
   group: "shell",
   risk: "exec",
   input: {
-    command: z.string().describe("Shell command to run in bash"),
-    cwd: z.string().optional().describe("Working directory (defaults to active workspace)"),
-    timeout_ms: z.number().int().optional().describe("Command timeout in milliseconds"),
+    command: z.string().describe("Shell command string to execute in bash"),
+    cwd: z.string().optional().describe("Working directory for command execution (defaults to active workspace)"),
+    timeout_ms: z.number().int().optional().describe("Command timeout limit in milliseconds"),
   },
   handler: async (args, ctx) => {
     try {
@@ -51,13 +51,13 @@ export const runTool = defineTool({
 export const jobTool = defineTool({
   name: "job",
   title: "Background Job Status",
-  description: "Check status, stream output, or list running background jobs.",
+  description: "Check status, stream output, or list running background jobs spawned by run. Use action 'status', 'output', or 'list'.",
   group: "shell",
   risk: "read",
   input: {
-    action: z.enum(["status", "output", "list"]).default("status").optional().describe("Action: status, output, or list"),
+    action: z.enum(["status", "output", "list"]).default("status").optional().describe("Action to perform: status, output, or list"),
     job_id: z.string().optional().describe("Job ID (required for status and output)"),
-    limit: z.number().int().optional().describe("Max bytes of output to return (for action='output')"),
+    limit: z.number().int().optional().describe("Maximum output bytes to return for output action"),
   },
   handler: async (args, ctx) => {
     try {
@@ -106,12 +106,12 @@ export const jobTool = defineTool({
 export const jobStopTool = defineTool({
   name: "job_stop",
   title: "Stop Background Job",
-  description: "Terminate a running background shell job.",
+  description: "Terminate a running background shell job by job_id with SIGTERM or SIGKILL. Use when a background task or dev server is no longer needed.",
   group: "shell",
   risk: "exec",
   input: {
-    job_id: z.string().describe("Job ID to terminate"),
-    signal: z.enum(["SIGTERM", "SIGKILL"]).default("SIGTERM").optional().describe("Signal to send (default SIGTERM)"),
+    job_id: z.string().describe("Job ID of the background job to terminate"),
+    signal: z.enum(["SIGTERM", "SIGKILL"]).default("SIGTERM").optional().describe("Signal to deliver to the process (default SIGTERM)"),
   },
   handler: async (args, _ctx) => {
     try {
