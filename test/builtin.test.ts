@@ -37,7 +37,7 @@ test("builtin skills and commands validation", async (t) => {
     }
   });
 
-  await t.test("all 12 built-in commands are present, valid, and renderable", async () => {
+  await t.test("all 15 built-in commands are present, valid, and renderable", async () => {
     const commands = await commandsRegistry.list();
     const expected = [
       "review",
@@ -52,6 +52,9 @@ test("builtin skills and commands validation", async (t) => {
       "deps",
       "onboard",
       "ship",
+      "verify",
+      "todo",
+      "resume",
     ];
 
     for (const name of expected) {

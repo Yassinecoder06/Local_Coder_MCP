@@ -2,6 +2,7 @@ services:
   mcp:
     build: .
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    shm_size: 1gb
     env_file: .env
     environment:
       HOST: 0.0.0.0

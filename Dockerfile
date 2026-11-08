@@ -7,8 +7,8 @@ COPY src ./src
 RUN npm run build && npm prune --omit=dev
 
 FROM node:22-bookworm-slim AS runtime
-ENV NODE_ENV=production PORT=8787 ADMIN_PORT=8788 HOST=0.0.0.0 ADMIN_HOST=0.0.0.0 DATA_DIR=/data BUILTIN_SKILLS_DIR=/app/skills USER_SKILLS_DIR=/data/skills BUILTIN_COMMANDS_DIR=/app/commands USER_COMMANDS_DIR=/data/commands
-RUN apt-get update && apt-get install -y --no-install-recommends bash build-essential ca-certificates curl git jq openssh-client python3 ripgrep tini \
+ENV NODE_ENV=production PORT=8787 ADMIN_PORT=8788 HOST=0.0.0.0 ADMIN_HOST=0.0.0.0 DATA_DIR=/data BUILTIN_SKILLS_DIR=/app/skills USER_SKILLS_DIR=/data/skills BUILTIN_COMMANDS_DIR=/app/commands USER_COMMANDS_DIR=/data/commands CHROMIUM_PATH=/usr/bin/chromium
+RUN apt-get update && apt-get install -y --no-install-recommends bash build-essential ca-certificates chromium curl fonts-liberation git jq openssh-client python3 ripgrep tini \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system app \
     && useradd --system --gid app --home-dir /home/app --create-home app

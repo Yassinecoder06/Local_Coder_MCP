@@ -1,8 +1,11 @@
 services:
   mcp:
     volumes:
-      - ${HOME}/.local/bin/herdr:/usr/local/bin/herdr:ro
-      - ${HOME}/.config/herdr:/home/app/.config/herdr:ro
+      - ${HERDR_BIN:-${HOME}/.local/bin/herdr}:/usr/local/bin/herdr:ro
+      - ${HOME}/.config/herdr:${HOME}/.config/herdr
       - ${HOME}/.agents/skills:/host-skills:ro
     environment:
+      HOME: ${HOME}
+      XDG_CONFIG_HOME: ${HOME}/.config
+      HERDR_ENV: "1"
       EXTRA_SKILLS_DIRS: /host-skills
