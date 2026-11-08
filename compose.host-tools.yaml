@@ -4,6 +4,8 @@ services:
       - ${HERDR_BIN:-${HOME}/.local/bin/herdr}:/usr/local/bin/herdr:ro
       - ${HOME}/.config/herdr:${HOME}/.config/herdr
       - ${HOME}/.agents/skills:/host-skills:ro
+      # HOME points at the host home below, so git must find .gitconfig there too.
+      - ${HOME}/.gitconfig:${HOME}/.gitconfig:ro
     environment:
       HOME: ${HOME}
       XDG_CONFIG_HOME: ${HOME}/.config
