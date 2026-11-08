@@ -91,6 +91,34 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
     });
   });
 
+  // 1b. GET /api/health — proxies MCP server's internal /health
+  app.get("/api/health", async (_req: Request, res: Response) => {
+    try {
+      const resp = await fetch(`http://127.0.0.1:${deps.config.port}/health`, {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (resp.ok) {
+        const data = (await resp.json()) as Record<string, unknown>;
+        res.json({
+          ...data,
+          mcpReachable: true,
+        });
+        return;
+      }
+      res.status(resp.status).json({
+        ok: false,
+        mcpReachable: false,
+        error: `MCP server returned HTTP ${resp.status}`,
+      });
+    } catch (err) {
+      res.status(503).json({
+        ok: false,
+        mcpReachable: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
   // 2. GET /api/connect
   app.get("/api/connect", async (_req: Request, res: Response) => {
     const publicUrl = await resolvePublicUrl(deps.config);

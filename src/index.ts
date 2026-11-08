@@ -17,6 +17,7 @@ import { createMcpApp } from "./http/app.js";
 import { initOAuthStore } from "./http/oauth-store.js";
 import { createSkillRegistry } from "./skills/index.js";
 import { createCommandRegistry } from "./commands/index.js";
+import { getDisplayHost } from "./http/public-url.js";
 
 async function main() {
   const config = loadConfig();
@@ -75,7 +76,8 @@ async function main() {
 
   await new Promise<void>((resolve, reject) => {
     mcpServer.listen(config.port, config.host, () => {
-      console.log(`[local-coder-mcp] MCP server listening on http://${config.host}:${config.port}`);
+      const displayHost = getDisplayHost(config.host);
+      console.log(`[local-coder-mcp] MCP server listening on http://${displayHost}:${config.hostPort}`);
       resolve();
     });
     mcpServer.once("error", reject);
@@ -83,7 +85,8 @@ async function main() {
 
   await new Promise<void>((resolve, reject) => {
     adminServer.listen(config.adminPort, config.adminHost, () => {
-      console.log(`[local-coder-mcp] Admin UI listening on http://${config.adminHost}:${config.adminPort}`);
+      const displayAdminHost = getDisplayHost(config.adminHost);
+      console.log(`[local-coder-mcp] Admin UI listening on http://${displayAdminHost}:${config.adminPort}`);
       resolve();
     });
     adminServer.once("error", reject);
