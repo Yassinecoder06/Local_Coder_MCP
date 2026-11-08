@@ -15,7 +15,10 @@ import type { ActivityLog } from "../core/activity.js";
 import type { CommandRegistry } from "../commands/registry.js";
 import type { SkillRegistry } from "../skills/registry.js";
 import { createWorkspace } from "../core/workspace.js";
-import type { ToolContext } from "../core/types.js";
+import type { ToolContext, ToolRisk } from "../core/types.js";
+import { annotationsFor, type ApprovalMode } from "../core/annotations.js";
+import toolModules from "../tools/index.js";
+import { buildInstructions } from "../mcp/instructions.js";
 import { createMcpServer } from "../mcp/server.js";
 
 const SESSION_TTL_MS = 60 * 60 * 1000; // 1 hour idle TTL
@@ -79,6 +82,40 @@ export class SessionManager {
 
   public count(): number {
     return this.sessions.size;
+  }
+
+  public async applyApprovalModeLive(newMode: ApprovalMode): Promise<void> {
+    const toolDefMap = new Map<string, { risk: ToolRisk; title: string }>();
+    for (const tool of (toolModules ?? []).flat()) {
+      if (tool?.name) {
+        toolDefMap.set(tool.name, { risk: tool.risk, title: tool.title });
+      }
+    }
+
+    for (const session of this.sessions.values()) {
+      const regTools = (session.server as any)._registeredTools;
+      if (regTools) {
+        for (const [name, regTool] of Object.entries(regTools)) {
+          if (!regTool) continue;
+          const def = toolDefMap.get(name);
+          const risk = def?.risk ?? "read";
+          const title = (regTool as any).title ?? def?.title ?? name;
+          const annotations = annotationsFor(risk, title, newMode);
+          (regTool as any).update({ annotations });
+        }
+      }
+
+      // Update instructions on the session server
+      try {
+        const newInstructions = await buildInstructions(session.context);
+        (session.server.server as any)._instructions = newInstructions;
+      } catch {}
+
+      // Send notifications/tools/list_changed
+      try {
+        (session.server as any).sendToolListChanged();
+      } catch {}
+    }
   }
 
   public async buildSession(forcedSessionId?: string, clientInfo?: { name: string; version: string }): Promise<McpSession> {
