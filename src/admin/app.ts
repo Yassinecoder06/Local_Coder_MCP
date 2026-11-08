@@ -13,6 +13,7 @@ import type { SkillRegistry } from "../skills/registry.js";
 import { getSettings, updateSettings } from "../core/settings.js";
 import { invalidateAllOAuthTokens } from "../http/oauth-store.js";
 import type { SessionManager } from "../http/session-manager.js";
+import { getLocalBaseUrl, resolvePublicUrl } from "../http/public-url.js";
 import toolModules from "../tools/index.js";
 import { ESSENTIAL_TOOLS } from "../mcp/server.js";
 
@@ -66,10 +67,11 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
   // REST API prefix: /api
 
   // 1. GET /api/status
-  app.get("/api/status", (_req: Request, res: Response) => {
-    const baseUrl = deps.config.publicUrl || `http://${deps.config.host}:${deps.config.port}`;
-    const localUrl = `http://${deps.config.host}:${deps.config.port}`;
+  app.get("/api/status", async (_req: Request, res: Response) => {
+    const publicUrl = await resolvePublicUrl(deps.config);
+    const localUrl = getLocalBaseUrl(deps.config);
     const settings = getSettings();
+    const effectiveBase = publicUrl || localUrl;
 
     res.json({
       version: deps.config.version,
@@ -82,40 +84,60 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
       defaultWorkspace: deps.config.defaultWorkspace,
       endpoints: {
         local: localUrl,
-        public: deps.config.publicUrl || localUrl,
-        mcpUrlWithToken: `${baseUrl}/mcp/${deps.config.mcpToken}`,
-        oauthIssuer: baseUrl,
+        public: publicUrl,
+        mcpUrlWithToken: `${effectiveBase}/mcp/${deps.config.mcpToken}`,
+        oauthIssuer: effectiveBase,
       },
     });
   });
 
   // 2. GET /api/connect
-  app.get("/api/connect", (_req: Request, res: Response) => {
-    const baseUrl = deps.config.publicUrl || `http://${deps.config.host}:${deps.config.port}`;
+  app.get("/api/connect", async (_req: Request, res: Response) => {
+    const publicUrl = await resolvePublicUrl(deps.config);
+    const localUrl = getLocalBaseUrl(deps.config);
     const token = deps.config.mcpToken;
-    const mcpUrlWithToken = `${baseUrl}/mcp/${token}`;
-    const mcpUrl = `${baseUrl}/mcp`;
+    const effectiveBase = publicUrl || localUrl;
+    const mcpUrlWithToken = `${effectiveBase}/mcp/${token}`;
+    const mcpUrl = `${effectiveBase}/mcp`;
+
+    const chatgptSteps = publicUrl
+      ? [
+          "Open ChatGPT and go to Settings → Apps & Connectors",
+          "Click Advanced → Developer mode → Create",
+          "Enter Name 'Local Coder', paste the URL, and select 'No auth'",
+          "Click Create to connect your agent",
+        ]
+      : [
+          "NOTE: ChatGPT web requires a public HTTPS URL. Run: docker compose --profile tunnel up -d",
+          "Open ChatGPT and go to Settings → Apps & Connectors",
+          "Click Advanced → Developer mode → Create",
+          "Enter Name 'Local Coder', paste the URL, and select 'No auth' (or OAuth)",
+          "Click Create to connect your agent",
+        ];
+
+    const geminiSteps = publicUrl
+      ? [
+          "Open Gemini and go to Settings → Connected apps",
+          "Click 'Add custom app'",
+          "Paste the MCP server URL",
+          "Sign in via OAuth using your Access Key (MCP_TOKEN)",
+        ]
+      : [
+          "NOTE: Gemini web requires a public HTTPS URL. Run: docker compose --profile tunnel up -d",
+          "Open Gemini and go to Settings → Connected apps",
+          "Click 'Add custom app'",
+          "Paste the MCP server URL",
+          "Sign in via OAuth using your Access Key (MCP_TOKEN)",
+        ];
 
     res.json({
       chatgpt: {
         url: mcpUrlWithToken,
-        steps: [
-          "Open ChatGPT and go to Settings → Apps & Connectors",
-          "Click Advanced → Developer mode → Create",
-          "Enter Name 'Local Coder' and paste the MCP server URL",
-          "Set Authentication to 'No auth' when using the URL with token, or choose OAuth / Bearer with your access key",
-          "Click Create to connect your local agent",
-        ],
+        steps: chatgptSteps,
       },
       gemini: {
         url: mcpUrl,
-        steps: [
-          "Open Gemini and go to Settings → Connected apps",
-          "Click 'Add custom app'",
-          "Paste the MCP server URL",
-          "Complete OAuth sign-in by entering your Access Key (MCP_TOKEN)",
-          "Save and start chatting with your local coding agent",
-        ],
+        steps: geminiSteps,
       },
       token,
     });

@@ -13,6 +13,7 @@ import { initOAuthStore } from "../src/http/oauth-store.js";
 import { createAdminApp } from "../src/admin/app.js";
 import { createSkillRegistry } from "../src/skills/index.js";
 import { createCommandRegistry } from "../src/commands/index.js";
+import { getDisplayHost, clearPublicUrlCache } from "../src/http/public-url.js";
 
 describe("Core Server Architecture", () => {
   let tmpDataDir: string;
@@ -37,6 +38,7 @@ describe("Core Server Architecture", () => {
       adminHost: "127.0.0.1",
       mcpToken: testToken,
       publicUrl: "",
+      tunnelMetricsUrl: "",
       authMode: "both",
       workspaceRoots: [tmpDataDir],
       defaultWorkspace: tmpDataDir,
@@ -59,7 +61,7 @@ describe("Core Server Architecture", () => {
     initSettings(tmpDataDir, { approvalMode: "minimal", toolProfile: "essential" });
     initOAuthStore(tmpDataDir);
     activityLog = createActivityLog(path.join(tmpDataDir, "activity.jsonl"));
-    const skillRegistry = createSkillRegistry(config);
+    const skillRegistry = createSkillRegistry(config, { get: getSettings, update: updateSettings });
     const commandRegistry = createCommandRegistry(config);
 
     const { app: mcpApp, sessionManager } = createMcpApp({
@@ -463,6 +465,168 @@ describe("Core Server Architecture", () => {
       assert.ok(Array.isArray(data));
       assert.ok(data.length > 0);
       assert.equal(data[0].tool, "test_tool");
+    });
+  });
+
+  describe("Display Host & Tunnel Auto-Discovery", () => {
+    let mockTunnelServer: http.Server;
+    let mockTunnelPort: number;
+    let mockHostname = "discovered-subdomain.trycloudflare.com";
+
+    before(async () => {
+      mockTunnelServer = http.createServer((req, res) => {
+        if (req.url === "/quicktunnel" && req.method === "GET") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ hostname: mockHostname }));
+          return;
+        }
+        res.writeHead(404).end();
+      });
+
+      await new Promise<void>((resolve) => {
+        mockTunnelServer.listen(0, "127.0.0.1", () => {
+          mockTunnelPort = (mockTunnelServer.address() as any).port;
+          resolve();
+        });
+      });
+    });
+
+    after(async () => {
+      clearPublicUrlCache();
+      config.host = "127.0.0.1";
+      config.publicUrl = "";
+      config.tunnelMetricsUrl = "";
+      await new Promise<void>((resolve) => mockTunnelServer.close(() => resolve()));
+    });
+
+    it("getDisplayHost maps 0.0.0.0, ::, and empty string to localhost", () => {
+      assert.equal(getDisplayHost("0.0.0.0"), "localhost");
+      assert.equal(getDisplayHost("::"), "localhost");
+      assert.equal(getDisplayHost("[::]"), "localhost");
+      assert.equal(getDisplayHost(""), "localhost");
+      assert.equal(getDisplayHost("   "), "localhost");
+      assert.equal(getDisplayHost("127.0.0.1"), "127.0.0.1");
+      assert.equal(getDisplayHost("custom.host"), "custom.host");
+    });
+
+    it("GET /api/status returns localhost display host and endpoints.public = null when no public URL", async () => {
+      config.host = "0.0.0.0";
+      config.publicUrl = "";
+      config.tunnelMetricsUrl = "";
+      clearPublicUrlCache();
+
+      const res = await fetch(`${adminBaseUrl}/api/status`, {
+        headers: { Host: `localhost:${adminPort}` },
+      });
+      assert.equal(res.status, 200);
+      const data = await res.json();
+
+      assert.equal(data.endpoints.local, `http://localhost:${config.port}`);
+      assert.equal(data.endpoints.public, null, "endpoints.public must be null when no public URL exists");
+      assert.equal(data.endpoints.mcpUrlWithToken, `http://localhost:${config.port}/mcp/${config.mcpToken}`);
+      assert.equal(data.endpoints.oauthIssuer, `http://localhost:${config.port}`);
+    });
+
+    it("GET /api/connect includes public HTTPS warning note when no public URL exists", async () => {
+      config.host = "0.0.0.0";
+      config.publicUrl = "";
+      config.tunnelMetricsUrl = "";
+      clearPublicUrlCache();
+
+      const res = await fetch(`${adminBaseUrl}/api/connect`, {
+        headers: { Host: `localhost:${adminPort}` },
+      });
+      assert.equal(res.status, 200);
+      const data = await res.json();
+
+      assert.equal(data.chatgpt.url, `http://localhost:${config.port}/mcp/${config.mcpToken}`);
+      assert.ok(
+        data.chatgpt.steps[0].includes("docker compose --profile tunnel up -d"),
+        "ChatGPT steps must include tunnel command note"
+      );
+      assert.ok(
+        data.gemini.steps[0].includes("docker compose --profile tunnel up -d"),
+        "Gemini steps must include tunnel command note"
+      );
+    });
+
+    it("auto-discovers public URL from tunnelMetricsUrl and uses it across status, connect, and OAuth metadata", async () => {
+      config.host = "0.0.0.0";
+      config.publicUrl = "";
+      config.tunnelMetricsUrl = `http://127.0.0.1:${mockTunnelPort}`;
+      mockHostname = "test-tunnel-auto.trycloudflare.com";
+      clearPublicUrlCache();
+
+      // Check /api/status
+      const statusRes = await fetch(`${adminBaseUrl}/api/status`, {
+        headers: { Host: `localhost:${adminPort}` },
+      });
+      assert.equal(statusRes.status, 200);
+      const statusData = await statusRes.json();
+      assert.equal(statusData.endpoints.public, "https://test-tunnel-auto.trycloudflare.com");
+      assert.equal(
+        statusData.endpoints.mcpUrlWithToken,
+        `https://test-tunnel-auto.trycloudflare.com/mcp/${config.mcpToken}`
+      );
+      assert.equal(statusData.endpoints.oauthIssuer, "https://test-tunnel-auto.trycloudflare.com");
+
+      // Check /api/connect
+      const connectRes = await fetch(`${adminBaseUrl}/api/connect`, {
+        headers: { Host: `localhost:${adminPort}` },
+      });
+      assert.equal(connectRes.status, 200);
+      const connectData = await connectRes.json();
+      assert.equal(
+        connectData.chatgpt.url,
+        `https://test-tunnel-auto.trycloudflare.com/mcp/${config.mcpToken}`
+      );
+      assert.equal(connectData.gemini.url, "https://test-tunnel-auto.trycloudflare.com/mcp");
+      assert.ok(
+        !connectData.chatgpt.steps[0].includes("NOTE:"),
+        "Should not show missing tunnel note when public URL is discovered"
+      );
+
+      // Check OAuth metadata
+      const oauthMetaRes = await fetch(`${mcpBaseUrl}/.well-known/oauth-authorization-server`);
+      assert.equal(oauthMetaRes.status, 200);
+      const oauthMeta = await oauthMetaRes.json();
+      assert.equal(oauthMeta.issuer, "https://test-tunnel-auto.trycloudflare.com");
+      assert.equal(
+        oauthMeta.authorization_endpoint,
+        "https://test-tunnel-auto.trycloudflare.com/oauth/authorize"
+      );
+    });
+
+    it("caches the discovered tunnel URL for 30s", async () => {
+      config.publicUrl = "";
+      config.tunnelMetricsUrl = `http://127.0.0.1:${mockTunnelPort}`;
+      mockHostname = "cached-tunnel.trycloudflare.com";
+      clearPublicUrlCache();
+
+      // First query populates cache
+      const res1 = await fetch(`${adminBaseUrl}/api/status`, {
+        headers: { Host: `localhost:${adminPort}` },
+      });
+      const data1 = await res1.json();
+      assert.equal(data1.endpoints.public, "https://cached-tunnel.trycloudflare.com");
+
+      // Change upstream hostname
+      mockHostname = "different-tunnel.trycloudflare.com";
+
+      // Immediate second query should hit 30s cache
+      const res2 = await fetch(`${adminBaseUrl}/api/status`, {
+        headers: { Host: `localhost:${adminPort}` },
+      });
+      const data2 = await res2.json();
+      assert.equal(data2.endpoints.public, "https://cached-tunnel.trycloudflare.com", "Must return cached URL");
+
+      // Clearing cache fetches new value
+      clearPublicUrlCache();
+      const res3 = await fetch(`${adminBaseUrl}/api/status`, {
+        headers: { Host: `localhost:${adminPort}` },
+      });
+      const data3 = await res3.json();
+      assert.equal(data3.endpoints.public, "https://different-tunnel.trycloudflare.com");
     });
   });
 });

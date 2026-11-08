@@ -4,7 +4,7 @@
 import crypto from "node:crypto";
 import express, { Router, type Request, type Response } from "express";
 import type { AppConfig } from "../config.js";
-import { getBaseUrl } from "./auth-middleware.js";
+import { getEffectiveBaseUrl } from "./public-url.js";
 import {
   consumeAuthCode,
   createAuthCode,
@@ -183,8 +183,8 @@ export function createOAuthRouter(config: AppConfig): Router {
   const router = Router();
 
   // 1. Authorization server metadata
-  router.get("/.well-known/oauth-authorization-server", (req: Request, res: Response) => {
-    const baseUrl = getBaseUrl(req, config);
+  router.get("/.well-known/oauth-authorization-server", async (req: Request, res: Response) => {
+    const baseUrl = await getEffectiveBaseUrl(req, config);
     res.json({
       issuer: baseUrl,
       authorization_endpoint: `${baseUrl}/oauth/authorize`,
@@ -199,8 +199,8 @@ export function createOAuthRouter(config: AppConfig): Router {
   });
 
   // 2. Protected resource metadata
-  router.get("/.well-known/oauth-protected-resource", (req: Request, res: Response) => {
-    const baseUrl = getBaseUrl(req, config);
+  router.get("/.well-known/oauth-protected-resource", async (req: Request, res: Response) => {
+    const baseUrl = await getEffectiveBaseUrl(req, config);
     res.json({
       resource: `${baseUrl}/mcp`,
       authorization_servers: [baseUrl],
