@@ -1,5 +1,8 @@
 # Local Coder MCP
 
+[![CI](https://github.com/Yassinecoder06/Local_Coder_MCP/actions/workflows/ci.yml/badge.svg)](https://github.com/Yassinecoder06/Local_Coder_MCP/actions/workflows/ci.yml)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+
 Local Coder MCP is a self-hosted MCP server that connects ChatGPT and Gemini web to your local coding workspaces. It provides file, shell, git, skills, and command tools while keeping the admin UI on your machine.
 
 ```text
@@ -11,9 +14,15 @@ Browser on this machine ──────────────────�
 
 ## Quick start
 
-1. Run `./scripts/setup.sh` (or `./scripts/setup.sh --yes` to accept defaults). Docker Compose v2 is required.
-2. Open [http://localhost:8788](http://localhost:8788) and copy the connection URL and access key shown in the admin page.
-3. Connect ChatGPT or Gemini using the steps below. The local server is ready for local MCP clients; web clients also need a public HTTPS URL.
+1. Clone the repository:
+
+   ```sh
+   git clone https://github.com/Yassinecoder06/Local_Coder_MCP.git && cd Local_Coder_MCP
+   ```
+
+2. Run `./scripts/setup.sh` (or `./scripts/setup.sh --yes` to accept defaults). Docker Compose v2 is required.
+3. Open [http://localhost:8788](http://localhost:8788) and copy the connection URL and access key shown on the admin **Connect** page.
+4. Connect ChatGPT or Gemini using the steps below. Web clients also need a public HTTPS URL; see [Getting a public HTTPS URL](#getting-a-public-https-url).
 
 Your project directory defaults to `~/Projects`. It is mounted at the same absolute path inside the container, so file paths stay identical. Change it in `.env` and restart with `docker compose up -d`.
 
