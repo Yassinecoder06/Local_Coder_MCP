@@ -14,6 +14,16 @@ const status = {
     mcpUrlWithToken: `http://localhost:8787/mcp/${token}`,
     oauthIssuer: '',
   },
+  integrations: {
+    herdr: {
+      available: false,
+      detail: 'herdr is not installed in this container.',
+    },
+    browser: {
+      available: true,
+      detail: 'Browser checks are ready.',
+    },
+  },
 };
 const connect = {
   token,
@@ -126,6 +136,36 @@ let settings = {
   toolProfile: 'essential',
 };
 let activity = [
+  {
+    id: 6,
+    ts: new Date(Date.now() - 9000).toISOString(),
+    client: 'chatgpt',
+    tool: 'browser_check',
+    args: 'url: http://localhost:3000',
+    ok: true,
+    summary: '0 console errors',
+    ms: 324,
+  },
+  {
+    id: 5,
+    ts: new Date(Date.now() - 12000).toISOString(),
+    client: 'gemini',
+    tool: 'run',
+    args: 'command: npm run verify',
+    ok: true,
+    summary: '3/3 checks passed',
+    ms: 2100,
+  },
+  {
+    id: 4,
+    ts: new Date(Date.now() - 15000).toISOString(),
+    client: 'chatgpt',
+    tool: 'edit_files',
+    args: 'ops: 2 patches',
+    ok: true,
+    summary: 'Diagnostics: 2 errors',
+    ms: 46,
+  },
   {
     id: 3,
     ts: new Date(Date.now() - 18000).toISOString(),

@@ -5,6 +5,7 @@ import {
   copyText,
   duration,
   escapeHtml,
+  integrationsCard,
   pageHeader,
   toast,
 } from '../ui.js';
@@ -71,7 +72,8 @@ export async function renderConnect(view, status) {
     </div><button class="button" id="copy-key">Copy key</button>
     <button class="button button-danger-quiet" id="rotate-key">Rotate key</button></div>
   </article>
-  ${publicUrlCallout(status)}`;
+  ${publicUrlCallout(status)}
+  ${integrationsCard(status.integrations)}`;
 
   bindCopyButtons(view);
   view.querySelector('#key-visibility').onclick = () => {
