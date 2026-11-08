@@ -12,7 +12,7 @@ You are diagnosing and fixing an issue in the project. Follow these instructions
    - Use `read` to inspect suspect files.
 3. If applicable, run tests using `run` to reproduce the failure.
 4. Apply the necessary fix:
-   - Use `edit` for targeted string replacements or `write` / `apply_patch` for broader changes.
+   - Use `edit_files` (`op: "replace"`, `op: "write"`, or `op: "patch"`) for changes.
 5. Verify the fix:
    - Run the test suite or build command via `run` to ensure no regressions were introduced.
 6. Summarize the root cause, what changes were made, and how verification was performed.

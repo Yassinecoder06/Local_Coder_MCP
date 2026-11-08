@@ -32,14 +32,10 @@ Essential profile (all others are `full` only). Names are final:
 | `read` | read | read 1..N files (`paths[]`, optional `offset`/`limit` lines), numbered lines, size cap |
 | `list` | read | directory tree with depth, ignores node_modules/.git/dist |
 | `search` | read | ripgrep content search (regex, glob filter, context lines) **and** `files` mode glob |
-| `write` | write | create/overwrite file (mkdir -p), checkpointed |
-| `edit` | write | 1..N exact string replacements in one file (`old`/`new`, `replace_all`), checkpointed |
-| `apply_patch` | write | multi-file patch (`*** Begin Patch` format + unified diff), checkpointed |
-| `file_ops` | write | move / copy / delete / mkdir batch, checkpointed |
-| `undo` | write | list / restore checkpoints of edits made via tools |
-| `run` | exec | run shell command in bash (cwd, timeout); returns within SHELL_SYNC_MS or continues in background and returns `job_id` |
-| `job` | read | `status`/`output`/`list` of background jobs, `stop` (exec) — split as `job` (read) + `job_stop` (exec) |
-| `job_stop` | exec | kill a background job |
+| `checkpoints` | read | list recent file modification checkpoints created by `edit_files` |
+| `edit_files` | write | batch write, replace, patch, move, copy, delete, mkdir, or undo; creates automatic checkpoint |
+| `run` | exec | run shell command in bash (cwd, timeout), or kill a job via `stop_job_id`; background jobs return `job_id` |
+| `job` | read | `status`/`output`/`list` of background jobs |
 | `git` | read | read-only git: status, diff (staged/unstaged/path), log, show, branch list, blame |
 | `git_write` | exec | add, commit, checkout/switch, branch create, restore, stash, pull, push, merge |
 | `skills_list` | read | list enabled skills (name, description, source) |

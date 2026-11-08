@@ -12,7 +12,7 @@ You are refactoring code: {{target}}
    - Use `read` to study the implementation and its callers.
    - Identify code smells, excessive complexity, duplication, or performance bottlenecks.
 3. Apply refactoring incrementally:
-   - Use `edit` or `apply_patch` for clean changes.
+   - Use `edit_files` for clean changes.
    - Keep behavior identical and API contracts intact.
 4. Verify refactoring:
    - Run tests using `run` after each step.
