@@ -8,6 +8,8 @@ import crypto from "node:crypto";
 import type { AppConfig } from "../src/config.js";
 import { createActivityLog } from "../src/core/activity.js";
 import { initSettings, getSettings, updateSettings } from "../src/core/settings.js";
+import { resolveInitialWorkspace } from "../src/core/workspace.js";
+import { inferClient } from "../src/mcp/server.js";
 import { createMcpApp } from "../src/http/app.js";
 import { initOAuthStore } from "../src/http/oauth-store.js";
 import { createAdminApp } from "../src/admin/app.js";
@@ -366,6 +368,169 @@ describe("Core Server Architecture", () => {
       assert.equal(res.status, 200);
       const sid = res.headers.get("mcp-session-id");
       assert.ok(sid);
+    });
+
+    it("sessionless call after workspace_switch resolves relative paths against the switched root", async () => {
+      // Create two directories inside config.workspaceRoots (tmpDataDir)
+      const dirA = path.join(tmpDataDir, "workspaceA");
+      const dirB = path.join(tmpDataDir, "workspaceB");
+      fs.mkdirSync(dirA, { recursive: true });
+      fs.mkdirSync(dirB, { recursive: true });
+
+      fs.writeFileSync(path.join(dirA, "app.js"), "console.log('from workspace A');", "utf-8");
+      fs.writeFileSync(path.join(dirB, "app.js"), "console.log('from workspace B');", "utf-8");
+
+      // 1. Initial state: ensure lastWorkspace is reset
+      await updateSettings({ lastWorkspace: undefined });
+
+      // 2. Perform workspace_switch to dirB using an initial call
+      const switchRes = await fetch(`${mcpBaseUrl}/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Authorization: `Bearer ${testToken}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 50,
+          method: "tools/call",
+          params: {
+            name: "workspace_switch",
+            arguments: { path: dirB },
+          },
+        }),
+      });
+      assert.equal(switchRes.status, 200);
+      const switchData = await switchRes.json();
+      assert.equal(switchData.result.isError, false);
+
+      // Verify that settings persisted lastWorkspace
+      const currentSettings = getSettings();
+      assert.equal(currentSettings.lastWorkspace, dirB);
+
+      // Verify GET /api/status reports lastWorkspace
+      const statusRes = await fetch(`${adminBaseUrl}/api/status`, {
+        headers: { Host: `localhost:${adminPort}` },
+      });
+      const statusData = await statusRes.json();
+      assert.equal(statusData.lastWorkspace, dirB);
+
+      // 3. Make a SESSIONLESS call (no Mcp-Session-Id header) to read "app.js"
+      const readRes = await fetch(`${mcpBaseUrl}/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Authorization: `Bearer ${testToken}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 51,
+          method: "tools/call",
+          params: {
+            name: "read",
+            arguments: { path: "app.js" },
+          },
+        }),
+      });
+      assert.equal(readRes.status, 200);
+      const readData = await readRes.json();
+      assert.equal(readData.result.isError, false);
+
+      const files = readData.result.structuredContent.data.files;
+      assert.ok(files && files.length > 0);
+      assert.equal(files[0].path, "app.js");
+      assert.ok(files[0].content.includes("from workspace B"), "Must read app.js from switched root dirB");
+
+      // 4. Test fallback to defaultWorkspace when lastWorkspace is unset or no longer exists
+      const deletedDir = path.join(tmpDataDir, "workspace-deleted");
+      await updateSettings({ lastWorkspace: deletedDir });
+      assert.equal(
+        resolveInitialWorkspace(config.workspaceRoots, config.defaultWorkspace, deletedDir),
+        config.defaultWorkspace
+      );
+      assert.equal(
+        resolveInitialWorkspace(config.workspaceRoots, config.defaultWorkspace, undefined),
+        config.defaultWorkspace
+      );
+    });
+
+    it("infers client name when clientInfo is unknown (User-Agent, Origin, and unknown fallback)", async () => {
+      // 1. Direct unit checks on inferClient
+      assert.equal(inferClient(undefined, { userAgent: "ChatGPT-User/1.0" }), "chatgpt");
+      assert.equal(inferClient(undefined, { userAgent: "Mozilla/5.0 OpenAI-Proxy" }), "chatgpt");
+      assert.equal(inferClient(undefined, { origin: "https://chatgpt.com" }), "chatgpt");
+      assert.equal(inferClient(undefined, { origin: "https://gemini.google.com" }), "gemini");
+      assert.equal(inferClient(undefined, { userAgent: "Google-Gemini/1.0" }), "gemini");
+      assert.equal(inferClient(undefined, { userAgent: "curl/8.5.0" }), "unknown");
+      assert.equal(inferClient(undefined, undefined), "unknown");
+      assert.equal(inferClient("Claude Desktop", undefined), "Claude Desktop");
+      // Never log tokens
+      assert.equal(inferClient("Bearer secret-token-xyz", undefined), "unknown");
+
+      // 2. Integration over HTTP with User-Agent: ChatGPT
+      const chatgptCall = await fetch(`${mcpBaseUrl}/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Authorization: `Bearer ${testToken}`,
+          "User-Agent": "Mozilla/5.0 (compatible; ChatGPT-User/1.0; +https://openai.com/bot)",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 60,
+          method: "tools/call",
+          params: { name: "status", arguments: {} },
+        }),
+      });
+      assert.equal(chatgptCall.status, 200);
+
+      const recentAfterChatgpt = activityLog.recent(1)[0];
+      assert.equal(recentAfterChatgpt.client, "chatgpt");
+
+      // 3. Integration over HTTP with Origin: https://gemini.google.com
+      const geminiCall = await fetch(`${mcpBaseUrl}/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Authorization: `Bearer ${testToken}`,
+          Origin: "https://gemini.google.com",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 61,
+          method: "tools/call",
+          params: { name: "status", arguments: {} },
+        }),
+      });
+      assert.equal(geminiCall.status, 200);
+
+      const recentAfterGemini = activityLog.recent(1)[0];
+      assert.equal(recentAfterGemini.client, "gemini");
+
+      // 4. Integration over HTTP with generic curl
+      const unknownCall = await fetch(`${mcpBaseUrl}/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Authorization: `Bearer ${testToken}`,
+          "User-Agent": "curl/8.5.0",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 62,
+          method: "tools/call",
+          params: { name: "status", arguments: {} },
+        }),
+      });
+      assert.equal(unknownCall.status, 200);
+
+      const recentAfterUnknown = activityLog.recent(1)[0];
+      assert.equal(recentAfterUnknown.client, "unknown");
     });
   });
 

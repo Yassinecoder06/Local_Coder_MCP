@@ -14,9 +14,10 @@ import type { AppConfig } from "../config.js";
 import type { ActivityLog } from "../core/activity.js";
 import type { CommandRegistry } from "../commands/registry.js";
 import type { SkillRegistry } from "../skills/registry.js";
-import { createWorkspace } from "../core/workspace.js";
+import { createWorkspace, resolveInitialWorkspace } from "../core/workspace.js";
 import type { ToolContext, ToolRisk } from "../core/types.js";
 import { annotationsFor, type ApprovalMode } from "../core/annotations.js";
+import { getSettings, updateSettings } from "../core/settings.js";
 import toolModules from "../tools/index.js";
 import { buildInstructions } from "../mcp/instructions.js";
 import { createMcpServer } from "../mcp/server.js";
@@ -31,6 +32,7 @@ export interface McpSession {
   context: ToolContext;
   createdAt: number;
   lastAccessedAt: number;
+  latestHeaders?: { userAgent?: string; origin?: string };
 }
 
 export interface SessionManagerDependencies {
@@ -120,7 +122,17 @@ export class SessionManager {
 
   public async buildSession(forcedSessionId?: string, clientInfo?: { name: string; version: string }): Promise<McpSession> {
     const sessionId = forcedSessionId || crypto.randomUUID();
-    const workspace = createWorkspace(this.deps.config.workspaceRoots, this.deps.config.defaultWorkspace);
+    const settings = getSettings();
+    const initialWorkspace = resolveInitialWorkspace(
+      this.deps.config.workspaceRoots,
+      this.deps.config.defaultWorkspace,
+      settings.lastWorkspace
+    );
+    const workspace = createWorkspace(this.deps.config.workspaceRoots, initialWorkspace, (newActive) => {
+      void updateSettings({ lastWorkspace: newActive }).catch((err) => {
+        console.warn("[workspace] Failed to persist lastWorkspace:", err);
+      });
+    });
     const context: ToolContext = {
       config: this.deps.config,
       workspace,
@@ -145,7 +157,8 @@ export class SessionManager {
       },
     });
 
-    const server = await createMcpServer(context, sessionId);
+    let sessionRef: McpSession | undefined;
+    const server = await createMcpServer(context, sessionId, () => sessionRef?.latestHeaders);
     await server.connect(transport);
 
     if (forcedSessionId) {
@@ -165,6 +178,7 @@ export class SessionManager {
       createdAt: Date.now(),
       lastAccessedAt: Date.now(),
     };
+    sessionRef = session;
 
     this.sessions.set(sessionId, session);
     return session;
@@ -221,6 +235,10 @@ export class SessionManager {
     }
 
     const sid = session.sessionId;
+    const userAgent = req.headers["user-agent"] as string | undefined;
+    const origin = req.headers["origin"] as string | undefined;
+    session.latestHeaders = { userAgent, origin };
+
     this.touch(sid);
     patchSessionHeaders(req, sid, protocolVersion);
     res.setHeader("mcp-session-id", sid);

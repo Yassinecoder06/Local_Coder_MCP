@@ -82,6 +82,7 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
       sessions: deps.sessionManager.count(),
       workspaceRoots: deps.config.workspaceRoots,
       defaultWorkspace: deps.config.defaultWorkspace,
+      lastWorkspace: settings.lastWorkspace,
       endpoints: {
         local: localUrl,
         public: publicUrl,
