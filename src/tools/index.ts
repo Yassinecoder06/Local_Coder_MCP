@@ -1,4 +1,48 @@
 /** Owned by agy2. Aggregates every tool module. */
 import type { ToolModule } from "../core/types.js";
-const modules: ToolModule[] = [];
+import workspaceTools from "./workspace.js";
+import filesTools from "./files.js";
+import searchTools from "./search.js";
+import shellTools from "./shell.js";
+import gitTools from "./git.js";
+import skillsTools from "./skills.js";
+import commandsTools from "./commands.js";
+import systemTools from "./system.js";
+
+export const ESSENTIAL_TOOLS = new Set<string>([
+  "workspace_info",
+  "workspace_switch",
+  "read",
+  "list",
+  "search",
+  "write",
+  "edit",
+  "apply_patch",
+  "file_ops",
+  "undo",
+  "run",
+  "job",
+  "job_stop",
+  "git",
+  "git_write",
+  "skills_list",
+  "skill_load",
+  "skill_save",
+  "commands_list",
+  "command_run",
+  "fetch_url",
+  "status",
+]);
+
+const modules: ToolModule[] = [
+  workspaceTools,
+  filesTools,
+  searchTools,
+  shellTools,
+  gitTools,
+  skillsTools,
+  commandsTools,
+  systemTools,
+];
+
 export default modules;
