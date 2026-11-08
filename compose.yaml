@@ -1,12 +1,13 @@
 services:
   mcp:
     build: .
-    user: "${UID:-1000}:${GID:-1000}"
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     env_file: .env
     environment:
       HOST: 0.0.0.0
       ADMIN_HOST: 0.0.0.0
       WORKSPACE_ROOTS: ${PROJECTS_DIR:?Set PROJECTS_DIR in .env}
+      TUNNEL_METRICS_URL: http://tunnel:2000
       DATA_DIR: /data
       BUILTIN_SKILLS_DIR: /app/skills
       USER_SKILLS_DIR: /data/skills
@@ -16,7 +17,7 @@ services:
       - "127.0.0.1:${ADMIN_PORT:-8788}:8788"
       - "127.0.0.1:${PORT:-8787}:8787"
     volumes:
-      - ./data:/data
+      - ${DATA_VOLUME:-./data}:/data
       - ${PROJECTS_DIR:?Set PROJECTS_DIR in .env}:${PROJECTS_DIR:?Set PROJECTS_DIR in .env}
       - ${HOME}/.gitconfig:/home/app/.gitconfig:ro
     restart: unless-stopped

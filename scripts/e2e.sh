@@ -2,31 +2,46 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 [[ -f .env ]] || { echo "Run ./scripts/setup.sh first (or create .env from .env.example)." >&2; exit 1; }
-set -a
-# shellcheck disable=SC1091
-. ./.env
-set +a
-: "${PROJECTS_DIR:?PROJECTS_DIR is required in .env}"
-: "${MCP_TOKEN:?MCP_TOKEN is required in .env}"
-fixture="$PROJECTS_DIR/.local-coder-e2e-$$.txt"
-headers=$(mktemp)
-cleanup() { rm -f "$fixture" "$headers"; docker compose down --remove-orphans >/dev/null 2>&1 || true; }
+
+# Read only the values this script needs. Never source .env: UID is readonly in bash.
+env_value() {
+  awk -v key="$1" 'index($0, key "=") == 1 { sub("^[^=]*=", ""); sub("\r$", ""); print; exit }' .env
+}
+projects_dir=$(env_value PROJECTS_DIR)
+mcp_token=$(env_value MCP_TOKEN)
+: "${projects_dir:?PROJECTS_DIR is required in .env}"
+: "${mcp_token:?MCP_TOKEN is required in .env}"
+
+project="local-coder-e2e-$$"
+temp_dir=$(mktemp -d)
+fixture=$(mktemp "$projects_dir/.local-coder-e2e.XXXXXX")
+headers="$temp_dir/headers"
+cleanup() {
+  docker compose -p "$project" --env-file .env -f compose.yaml down --volumes --remove-orphans >/dev/null 2>&1 || true
+  rm -f "$fixture"
+  rm -rf "$temp_dir"
+}
 trap cleanup EXIT
 printf 'Local Coder MCP e2e fixture\n' >"$fixture"
-docker compose build
-docker compose up -d
+
+# The isolated project name, ports, and data path leave the user's running stack intact.
+export PORT=18787 ADMIN_PORT=18788 DATA_VOLUME="$temp_dir/data"
+compose() { docker compose -p "$project" --env-file .env -f compose.yaml "$@"; }
+compose build
+compose up -d
 
 for attempt in $(seq 1 60); do
-  container=$(docker compose ps -q mcp)
+  container=$(compose ps -q mcp)
   health=$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>/dev/null || true)
   [[ "$health" == healthy ]] && break
-  [[ "$health" == unhealthy ]] && { echo "Container healthcheck failed." >&2; docker compose logs mcp; exit 1; }
+  [[ "$health" == unhealthy ]] && { echo "Container healthcheck failed." >&2; compose logs mcp; exit 1; }
   sleep 2
 done
-[[ "${health:-}" == healthy ]] || { echo "Timed out waiting for healthy MCP service." >&2; docker compose logs mcp; exit 1; }
+[[ "${health:-}" == healthy ]] || { echo "Timed out waiting for healthy MCP service." >&2; compose logs mcp; exit 1; }
+echo "Container health: $health"
 
-base="http://127.0.0.1:${PORT:-8787}/mcp"
-auth="Authorization: Bearer $MCP_TOKEN"
+base="http://127.0.0.1:${PORT}/mcp"
+auth="Authorization: Bearer $mcp_token"
 accept='Accept: application/json, text/event-stream'
 initialize=$(curl --fail --silent --show-error -H "$auth" -H "$accept" -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"e2e","version":"1.0"}}}' "$base" -D "$headers")
@@ -40,12 +55,16 @@ json_response() {
 }
 initialize=$(json_response "$initialize")
 echo "$initialize" | jq -e '.result.serverInfo.name or .result.protocolVersion' >/dev/null
+echo "MCP initialize: ok"
 rpc '{"jsonrpc":"2.0","method":"notifications/initialized"}' >/dev/null
 tools=$(json_response "$(rpc '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')")
 echo "$tools" | jq -e '[.result.tools[].name] | index("status") != null and index("read") != null' >/dev/null
 status=$(json_response "$(rpc '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"status","arguments":{}}}')")
 echo "$status" | jq -e '.result and (.error | not) and (.result.isError != true)' >/dev/null
+echo "MCP tools/call status: ok"
 read_result=$(json_response "$(rpc "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"read\",\"arguments\":{\"paths\":[\"$fixture\"]}}}")")
 echo "$read_result" | jq -e '.result and (.error | not) and (.result.isError != true) and ((.result | tostring) | contains("Local Coder MCP e2e fixture"))' >/dev/null
-curl --fail --silent --show-error "http://127.0.0.1:${ADMIN_PORT:-8788}/api/status" | jq -e '.version and .endpoints' >/dev/null
+echo "MCP tools/call read: ok"
+curl --fail --silent --show-error "http://127.0.0.1:${ADMIN_PORT}/api/status" | jq -e '.version and .endpoints' >/dev/null
+echo "Admin API: ok"
 echo "E2E smoke test passed."
