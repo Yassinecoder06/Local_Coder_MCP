@@ -11,7 +11,7 @@ import http from "node:http";
 import path from "node:path";
 import { loadConfig } from "./config.js";
 import { createActivityLog } from "./core/activity.js";
-import { initSettings, getSettings } from "./core/settings.js";
+import { initSettings, getSettings, updateSettings } from "./core/settings.js";
 import { createAdminApp } from "./admin/app.js";
 import { createMcpApp } from "./http/app.js";
 import { initOAuthStore } from "./http/oauth-store.js";
@@ -48,7 +48,7 @@ async function main() {
   const activityLog = createActivityLog(path.join(config.dataDir, "activity.jsonl"));
 
   // 5. Build skill & command registries
-  const skillRegistry = createSkillRegistry(config, getSettings());
+  const skillRegistry = createSkillRegistry(config, { get: getSettings, update: updateSettings });
   const commandRegistry = createCommandRegistry(config);
 
   // 6. Create MCP Express app & Session Manager
