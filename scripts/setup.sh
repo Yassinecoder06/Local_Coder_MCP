@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+yes_mode=false
+if [[ "${1:-}" == "--yes" || "${1:-}" == "-y" ]]; then yes_mode=true; fi
+command -v docker >/dev/null 2>&1 || { echo "Docker is required. Install Docker Engine/Desktop with Compose v2." >&2; exit 1; }
+docker compose version >/dev/null 2>&1 || { echo "Docker Compose v2 is required." >&2; exit 1; }
+if [[ ! -f .env ]]; then cp .env.example .env; fi
+
+get_env() { sed -n "s/^$1=//p" .env | tail -n 1; }
+set_env() {
+  local key="$1" value="$2" tmp
+  tmp=$(mktemp)
+  awk -v k="$key" -v v="$value" 'BEGIN { FS=OFS="=" } $1 == k { $0=k "=" v; found=1 } { print } END { if (!found) print k "=" v }' .env >"$tmp"
+  cat "$tmp" >.env
+  rm -f "$tmp"
+}
+
+token=$(get_env MCP_TOKEN)
+if [[ -z "$token" ]]; then
+  if command -v openssl >/dev/null 2>&1; then token=$(openssl rand -hex 32)
+  else token=$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')
+  fi
+  set_env MCP_TOKEN "$token"
+fi
+projects_dir=$(get_env PROJECTS_DIR)
+default_projects="$HOME/Projects"
+if [[ -z "$projects_dir" || "$projects_dir" == "/home/you/Projects" ]]; then projects_dir="$default_projects"; fi
+if [[ "$yes_mode" != true && -t 0 ]]; then
+  read -r -p "Projects directory [$projects_dir]: " answer
+  projects_dir="${answer:-$projects_dir}"
+fi
+projects_dir=$(mkdir -p "$projects_dir" && cd "$projects_dir" && pwd -P)
+set_env PROJECTS_DIR "$projects_dir"
+set_env UID "$(id -u)"
+set_env GID "$(id -g)"
+mkdir -p data
+docker compose up -d --build
+echo
+echo "Local Coder MCP is starting. Admin: http://localhost:8788"
+echo "Open the admin page to copy the MCP connection details."
+echo "Set PUBLIC_URL in .env after starting a public tunnel, then run: docker compose up -d mcp"

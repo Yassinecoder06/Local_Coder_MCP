@@ -1,0 +1,8 @@
+services:
+  mcp:
+    volumes:
+      - ${HOME}/.local/bin/herdr:/usr/local/bin/herdr:ro
+      - ${HOME}/.config/herdr:/home/app/.config/herdr:ro
+      - ${HOME}/.agents/skills:/host-skills:ro
+    environment:
+      EXTRA_SKILLS_DIRS: /host-skills
