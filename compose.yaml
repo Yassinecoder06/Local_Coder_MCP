@@ -6,6 +6,9 @@ services:
     environment:
       HOST: 0.0.0.0
       ADMIN_HOST: 0.0.0.0
+      # Container-internal ports are fixed; PORT/ADMIN_PORT in .env only choose the host ports.
+      PORT: "8787"
+      ADMIN_PORT: "8788"
       WORKSPACE_ROOTS: ${PROJECTS_DIR:?Set PROJECTS_DIR in .env}
       TUNNEL_METRICS_URL: http://tunnel:2000
       DATA_DIR: /data
