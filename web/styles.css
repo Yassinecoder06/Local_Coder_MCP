@@ -209,6 +209,7 @@ textarea {
 }
 
 .main-area {
+  min-width: 0;
   min-height: 100vh;
   margin-left: var(--sidebar-width);
   transition: margin-left .2s ease;
@@ -484,6 +485,17 @@ textarea {
   gap: 16px;
 }
 
+.connect-grid > *,
+.connect-card,
+.connect-card-head > *,
+.url-row,
+.key-panel > *,
+.key-controls,
+.notice,
+.notice > div {
+  min-width: 0;
+}
+
 .connect-card-head {
   display: flex;
   align-items: center;
@@ -515,6 +527,7 @@ textarea {
 
 .client-state {
   margin-left: auto;
+  flex: 0 0 auto;
   padding: 4px 8px;
   border-radius: 20px;
   background: var(--green-bg);
@@ -525,6 +538,7 @@ textarea {
 
 .url-row {
   display: flex;
+  width: 100%;
   align-items: center;
   gap: 8px;
   padding: 6px 7px 6px 10px;
@@ -536,11 +550,15 @@ textarea {
 .url-row code {
   overflow: hidden;
   min-width: 0;
-  flex: 1;
+  flex: 1 1 auto;
   color: var(--text);
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.url-row .button {
+  flex: 0 0 auto;
 }
 
 .steps {
@@ -551,6 +569,7 @@ textarea {
 }
 
 .steps li {
+  min-width: 0;
   padding: 3px 0 3px 3px;
 }
 
@@ -1529,11 +1548,16 @@ textarea {
 
   .key-controls {
     width: 100%;
+    flex-wrap: wrap;
   }
 
   .key-field {
     width: auto;
-    flex: 1;
+    flex: 1 1 100%;
+  }
+
+  .key-controls > .button {
+    flex: 1 1 0;
   }
 
   .setting-section {
@@ -1614,6 +1638,27 @@ textarea {
 
   .connect-grid {
     grid-template-columns: 1fr;
+  }
+
+  .activity-table {
+    table-layout: fixed;
+    white-space: normal;
+  }
+
+  .activity-table th,
+  .activity-table td {
+    padding-right: 5px;
+    padding-left: 5px;
+    overflow-wrap: anywhere;
+  }
+
+  #view,
+  #view * {
+    min-width: 0;
+  }
+
+  #view :is(p, li, code, h1, h2, small, strong, span, a, td, th) {
+    overflow-wrap: anywhere;
   }
 
   .page-heading {

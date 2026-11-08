@@ -4,7 +4,9 @@ import { escapeHtml, pageHeader, toast, trapDialogFocus } from '../ui.js';
 let settings = {};
 let statusData = {};
 let savedApprovalMode = 'minimal';
+let savedToolProfile = 'essential';
 let trustTrigger;
+let trustSavePending = false;
 
 export async function renderSettings(view, status) {
   statusData = status;
@@ -12,6 +14,7 @@ export async function renderSettings(view, status) {
   const approvalMode = settings.approvalMode || status.approvalMode || 'minimal';
   savedApprovalMode = approvalMode;
   const toolProfile = settings.toolProfile || status.toolProfile || 'essential';
+  savedToolProfile = toolProfile;
   const roots = status.workspaceRoots || [];
   view.innerHTML = `${pageHeader(
     'PREFERENCES',
@@ -67,6 +70,7 @@ export async function renderSettings(view, status) {
       if (input.name === 'approvalMode' && input.value === 'trust'
         && savedApprovalMode !== 'trust') {
         trustTrigger = input;
+        document.querySelector('#trust-confirm').disabled = false;
         document.querySelector('#trust-confirm-dialog').showModal();
       }
     });
@@ -79,9 +83,12 @@ async function saveSettings(view) {
     approvalMode: view.querySelector('[name="approvalMode"]:checked').value,
     toolProfile: view.querySelector('[name="toolProfile"]:checked').value,
   };
+  if (patch.approvalMode === savedApprovalMode
+    && patch.toolProfile === savedToolProfile) return;
   try {
     settings = await send('/settings', 'PATCH', patch);
     savedApprovalMode = settings.approvalMode;
+    savedToolProfile = settings.toolProfile;
     statusData.approvalMode = settings.approvalMode;
     statusData.toolProfile = settings.toolProfile;
     document.dispatchEvent(new CustomEvent('approval-mode:change', {
@@ -104,6 +111,8 @@ trustDialog.addEventListener('keydown', trapDialogFocus);
 
 document.querySelector('#trust-confirm').addEventListener('click', async (event) => {
   const button = event.currentTarget;
+  if (trustSavePending) return;
+  trustSavePending = true;
   button.disabled = true;
   try {
     settings = await send('/settings', 'PATCH', { approvalMode: 'trust' });
@@ -117,7 +126,8 @@ document.querySelector('#trust-confirm').addEventListener('click', async (event)
   } catch (error) {
     toast(error.message, true);
   } finally {
-    button.disabled = false;
+    trustSavePending = false;
+    if (trustDialog.open) button.disabled = false;
   }
 });
 
