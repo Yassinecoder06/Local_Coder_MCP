@@ -7,7 +7,8 @@ import toolModules from "../tools/index.js";
 import { annotationsFor } from "../core/annotations.js";
 import { fail, RESULT_OUTPUT_SCHEMA, toCallToolResult } from "../core/result.js";
 import { getSettings } from "../core/settings.js";
-import type { ToolContext, ToolResult } from "../core/types.js";
+import type { ToolContext, ToolResult, PluginBridge } from "../core/types.js";
+import type { PluginHub, PluginTool } from "../core/plugins.js";
 import { buildInstructions } from "./instructions.js";
 
 /** Final list of tools included in the 'essential' profile. All others require 'full'. */
@@ -37,6 +38,7 @@ export const ESSENTIAL_TOOLS = new Set([
   "ask_user",
   "user_request_status",
   "finish",
+  "plugin_tools",
 ]);
 
 function summarizeArgs(args: unknown): string {
@@ -128,7 +130,8 @@ export function inferClient(
 export async function createMcpServer(
   ctx: ToolContext,
   sessionId?: string,
-  getHeaders?: () => { userAgent?: string; origin?: string } | undefined
+  getHeaders?: () => { userAgent?: string; origin?: string } | undefined,
+  hub?: PluginHub
 ): Promise<McpServer> {
   const instructions = await buildInstructions(ctx);
   const server = new McpServer(
@@ -221,6 +224,134 @@ export async function createMcpServer(
 
     return res;
   };
+
+  // Provide ctx.plugins (PluginBridge) when a hub exists
+  if (hub) {
+    ctx.plugins = {
+      list(): PluginTool[] {
+        return hub.execTools();
+      },
+      async call(plugin: string, tool: string, args: Record<string, unknown>): Promise<ToolResult> {
+        const start = Date.now();
+        const clientVersion = server.server.getClientVersion();
+        const headers = currentExtra?.requestInfo?.headers ?? getHeaders?.();
+        const client = inferClient(clientVersion?.name, headers);
+        const sid = (currentExtra?.sessionId || sessionId || "").slice(0, 8) || undefined;
+        const workspace = ctx.workspace.active();
+        const execTools = hub.execTools();
+        const target = execTools.find(
+          (t) =>
+            (t.plugin === plugin || t.plugin.replace(/-/g, "_") === plugin.replace(/-/g, "_")) &&
+            t.name === tool
+        );
+
+        const canonicalPlugin = target ? target.plugin : plugin;
+        const activityTool = `${canonicalPlugin}.${tool}`;
+
+        if (!target) {
+          const res = fail(activityTool, `Plugin '${plugin}' or tool '${tool}' is not available or not ready`);
+          ctx.activity.record({
+            session: sid,
+            client,
+            workspace,
+            tool: activityTool,
+            args: summarizeArgs(args),
+            ok: false,
+            summary: res.error || "Not available",
+            ms: Date.now() - start,
+            via: "exec",
+          });
+          return res;
+        }
+
+        if (!target.execAllowed) {
+          const res = fail(
+            activityTool,
+            `Plugin tool '${activityTool}' is not allowed in exec (requires trusted plugin or read-only tool)`
+          );
+          ctx.activity.record({
+            session: sid,
+            client,
+            workspace,
+            tool: activityTool,
+            args: summarizeArgs(args),
+            ok: false,
+            summary: res.error || "Not allowed",
+            ms: Date.now() - start,
+            via: "exec",
+          });
+          return res;
+        }
+
+        try {
+          const callRes = await hub.callPluginTool(target.plugin, tool, args ?? {});
+          const ok = !callRes.isError;
+          const textParts: string[] = [];
+          const images: Array<{ data: string; mimeType: string }> = [];
+
+          if (Array.isArray(callRes.content)) {
+            for (const part of callRes.content as any[]) {
+              if (part && typeof part === "object") {
+                if (part.type === "text" && typeof part.text === "string") {
+                  textParts.push(part.text);
+                } else if (
+                  part.type === "image" &&
+                  typeof part.data === "string" &&
+                  typeof part.mimeType === "string"
+                ) {
+                  images.push({ data: part.data, mimeType: part.mimeType });
+                }
+              }
+            }
+          }
+
+          const text = textParts.join("\n");
+          const summary = text || (ok ? "OK" : "Plugin tool returned error");
+
+          const res: ToolResult = {
+            ok,
+            tool: activityTool,
+            summary,
+            data: {
+              text,
+              structured: callRes.structuredContent,
+            },
+            error: ok ? undefined : (text || "Plugin tool returned error"),
+            images: images.length > 0 ? images : undefined,
+          };
+
+          ctx.activity.record({
+            session: sid,
+            client,
+            workspace,
+            tool: activityTool,
+            args: summarizeArgs(args),
+            ok,
+            summary: res.summary,
+            ms: Date.now() - start,
+            via: "exec",
+          });
+
+          return res;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          const res = fail(activityTool, msg);
+          ctx.activity.record({
+            session: sid,
+            client,
+            workspace,
+            tool: activityTool,
+            args: summarizeArgs(args),
+            ok: false,
+            summary: msg,
+            ms: Date.now() - start,
+            via: "exec",
+          });
+          return res;
+        }
+      },
+    };
+  }
 
   for (const tool of allTools) {
     if (!tool || !tool.name) continue;

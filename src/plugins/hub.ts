@@ -21,6 +21,7 @@ import {
   MASKED,
   PLUGIN_LIMITS,
 } from "../core/plugins.js";
+import { normalizeToolSchema } from "./schema.js";
 
 function validatePluginId(id: string): void {
   if (!id || typeof id !== "string") {
@@ -152,6 +153,7 @@ interface UpstreamDeclaredTool {
   description: string;
   inputSchema: Record<string, unknown>;
   annotations?: Record<string, unknown>;
+  adjustments?: string[];
 }
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
@@ -347,12 +349,16 @@ class PluginInstance {
         throw new Error(`Plugin declared ${tools.length} tools, exceeding maximum allowed (${PLUGIN_LIMITS.maxDeclaredTools})`);
       }
 
-      this.declaredTools = tools.map((t) => ({
-        name: t.name,
-        description: t.description || "",
-        inputSchema: (t.inputSchema as Record<string, unknown>) || {},
-        annotations: (t.annotations as Record<string, unknown>) || undefined,
-      }));
+      this.declaredTools = tools.map((t) => {
+        const norm = normalizeToolSchema(t.inputSchema || {});
+        return {
+          name: t.name,
+          description: t.description || "",
+          inputSchema: norm.schema,
+          annotations: (t.annotations as Record<string, unknown>) || undefined,
+          adjustments: norm.adjustments.length > 0 ? norm.adjustments : undefined,
+        };
+      });
 
       this.status.state = "ready";
       this.status.error = undefined;
@@ -428,6 +434,18 @@ class PluginInstance {
   }
 }
 
+function findPluginInstance(instances: Map<string, PluginInstance>, plugin: string): PluginInstance | undefined {
+  if (instances.has(plugin)) return instances.get(plugin);
+  const normalized = plugin.replace(/_/g, "-");
+  if (instances.has(normalized)) return instances.get(normalized);
+  for (const [id, inst] of instances.entries()) {
+    if (id.replace(/-/g, "_") === plugin.replace(/-/g, "_")) {
+      return inst;
+    }
+  }
+  return undefined;
+}
+
 export function createPluginHub(config: AppConfig): PluginHub {
   pluginDataDir = config.dataDir;
   const configFile = path.join(config.dataDir, "plugins.json");
@@ -497,15 +515,18 @@ export function createPluginHub(config: AppConfig): PluginHub {
             ? { ...(t.annotations || {}), readOnlyHint: true }
             : t.annotations;
 
+          const execAllowed = inst.config.trusted || t.annotations?.readOnlyHint === true;
+
           nextPublished.push({
             plugin: inst.config.id,
             name: t.name,
             description: t.description,
             inputSchema: t.inputSchema,
             annotations,
+            adjustments: t.adjustments,
             enabled: true,
             published: true,
-            execAllowed: false, // TODO(agy1): exec rule from src/core/plugins.ts
+            execAllowed,
           });
         }
       }
@@ -588,16 +609,21 @@ export function createPluginHub(config: AppConfig): PluginHub {
           ? { ...(t.annotations || {}), readOnlyHint: true }
           : t.annotations;
 
+        const isReady = inst.status.state === "ready";
+        const isEnabled = !isDisabled;
+        const execAllowed = isEnabled && isReady && (inst.config.trusted || t.annotations?.readOnlyHint === true);
+
         return {
           plugin: id,
           name: t.name,
           description: t.description,
           inputSchema: t.inputSchema,
           annotations,
-          enabled: !isDisabled,
+          adjustments: t.adjustments,
+          enabled: isEnabled,
           published: isPublished,
           reason,
-          execAllowed: false, // TODO(agy1)
+          execAllowed,
         };
       });
 
@@ -781,11 +807,55 @@ export function createPluginHub(config: AppConfig): PluginHub {
     },
 
     execTools(): PluginTool[] {
-      return []; // TODO(agy1)
+      computePublication();
+      const readyInstances = Array.from(instances.values()).filter((inst) => inst.status.state === "ready");
+      const result: PluginTool[] = [];
+      for (const inst of readyInstances) {
+        for (const t of inst.declaredTools) {
+          const isDisabled = inst.config.disabledTools.includes(t.name);
+          if (isDisabled) continue;
+          const isPublished = publishedCache.some((pt) => pt.plugin === inst.config.id && pt.name === t.name);
+          const annotations = inst.config.trusted
+            ? { ...(t.annotations || {}), readOnlyHint: true }
+            : t.annotations;
+          const execAllowed = inst.config.trusted || t.annotations?.readOnlyHint === true;
+          result.push({
+            plugin: inst.config.id,
+            name: t.name,
+            description: t.description,
+            inputSchema: t.inputSchema,
+            annotations,
+            adjustments: t.adjustments,
+            enabled: true,
+            published: isPublished,
+            execAllowed,
+          });
+        }
+      }
+      return result;
     },
 
-    async callPluginTool(): Promise<{ content: unknown[]; structuredContent?: unknown; isError?: boolean }> {
-      throw new Error("not implemented"); // TODO(agy1)
+    async callPluginTool(
+      plugin: string,
+      tool: string,
+      args: Record<string, unknown>
+    ): Promise<{ content: unknown[]; structuredContent?: unknown; isError?: boolean }> {
+      computePublication();
+      const inst = findPluginInstance(instances, plugin);
+      if (!inst) {
+        throw new Error(`Plugin '${plugin}' not found`);
+      }
+      if (inst.status.state !== "ready") {
+        throw new Error(`Plugin '${plugin}' is not ready (state: ${inst.status.state})`);
+      }
+      const declared = inst.declaredTools.find((t) => t.name === tool);
+      if (!declared) {
+        throw new Error(`Tool '${tool}' not found in plugin '${plugin}'`);
+      }
+      if (inst.config.disabledTools.includes(tool)) {
+        throw new Error(`Tool '${tool}' is disabled in plugin '${plugin}'`);
+      }
+      return await inst.callTool(tool, args);
     },
 
     subscribe(fn: () => void): () => void {

@@ -14,6 +14,7 @@ import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import type { AppConfig } from "../config.js";
 import type { ActivityLog } from "../core/activity.js";
 import type { Board } from "../core/board.js";
+import type { PluginHub } from "../core/plugins.js";
 import type { CommandRegistry } from "../commands/registry.js";
 import type { SkillRegistry } from "../skills/registry.js";
 import { createWorkspace, resolveInitialWorkspace, resolveWorkspaces } from "../core/workspace.js";
@@ -30,7 +31,8 @@ const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 export type ServerFactory = (
   context: ToolContext,
   sessionId: string,
-  getHeaders?: () => { userAgent?: string; origin?: string } | undefined
+  getHeaders?: () => { userAgent?: string; origin?: string } | undefined,
+  hub?: PluginHub
 ) => Promise<McpServer | Server>;
 
 export interface McpSession {
@@ -49,6 +51,7 @@ export interface SessionManagerDependencies {
   skills: SkillRegistry;
   commands: CommandRegistry;
   board?: Board;
+  pluginHub?: PluginHub;
   serverFactory?: ServerFactory;
 }
 
@@ -208,7 +211,12 @@ export class SessionManager {
 
     let sessionRef: McpSession | undefined;
     const factory = this.deps.serverFactory ?? createMcpServer;
-    const server = await factory(context, sessionId, () => sessionRef?.latestHeaders);
+    const server = await factory(
+      context,
+      sessionId,
+      () => sessionRef?.latestHeaders,
+      this.deps.pluginHub
+    );
     await server.connect(transport);
 
     if (forcedSessionId) {

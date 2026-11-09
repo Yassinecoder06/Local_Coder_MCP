@@ -39,6 +39,7 @@ export const ESSENTIAL_TOOLS = new Set<string>([
   "ask_user",
   "user_request_status",
   "finish",
+  "plugin_tools",
 ]);
 
 const modules: ToolModule[] = [
