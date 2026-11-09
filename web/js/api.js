@@ -48,3 +48,18 @@ export function streamActivity(onEntry, onError = () => {}) {
   source.onerror = onError;
   return source;
 }
+
+export function streamBoard(onEvent, onError = () => {}) {
+  if (mockApi) return mockApi.streamBoard(onEvent, onError);
+
+  const source = new EventSource('/api/board/stream');
+  source.onmessage = (event) => {
+    try {
+      onEvent(JSON.parse(event.data));
+    } catch {
+      // Ignore malformed events and keep the stream open.
+    }
+  };
+  source.onerror = onError;
+  return source;
+}

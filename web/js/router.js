@@ -4,6 +4,7 @@ const pageNames = {
   commands: 'Commands',
   tools: 'Tools',
   activity: 'Activity',
+  requests: 'Requests',
   settings: 'Settings',
 };
 
