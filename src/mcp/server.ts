@@ -54,6 +54,38 @@ function summarizeArgs(args: unknown): string {
   }
 }
 
+function classifyClient(text: string): string | undefined {
+  const lower = text.toLowerCase();
+
+  // claude-code vs claude
+  if (lower.includes("claude-code") || lower.includes("claude_code")) return "claude-code";
+  if (lower.includes("claude") || lower.includes("anthropic")) return "claude";
+
+  // gemini-cli vs gemini web
+  if (lower.includes("gemini-cli") || lower.includes("gemini_cli")) return "gemini-cli";
+  if (lower.includes("gemini") || lower.includes("google")) return "gemini";
+
+  // chatgpt
+  if (lower.includes("chatgpt") || lower.includes("openai")) return "chatgpt";
+
+  // cursor
+  if (lower.includes("cursor")) return "cursor";
+
+  // vscode
+  if (lower.includes("visual studio code") || lower.includes("vscode") || lower.includes("vs code")) return "vscode";
+
+  // windsurf
+  if (lower.includes("windsurf") || lower.includes("codeium")) return "windsurf";
+
+  // codex
+  if (lower.includes("codex")) return "codex";
+
+  // le chat / mistral
+  if (lower.includes("le chat") || lower.includes("le-chat") || lower.includes("mistral")) return "le-chat";
+
+  return undefined;
+}
+
 export function inferClient(
   clientVersionName?: string,
   headers?: { userAgent?: string; origin?: string } | Record<string, string | string[] | undefined>
@@ -63,10 +95,10 @@ export function inferClient(
     if (/token|password|secret|key|bearer/i.test(trimmed)) {
       return "unknown";
     }
-    const lower = trimmed.toLowerCase();
-    if (lower.includes("chatgpt") || lower.includes("openai")) return "chatgpt";
-    if (lower.includes("gemini") || lower.includes("google")) return "gemini";
-    return trimmed;
+    const matched = classifyClient(trimmed);
+    if (matched) return matched;
+    // Anything else keeps its sanitised clientInfo name (never 'unknown' when a name exists)
+    return trimmed.replace(/[\r\n\t]+/g, " ").slice(0, 50);
   }
 
   if (!headers) return "unknown";
@@ -83,13 +115,10 @@ export function inferClient(
     origin = String(raw["origin"] ?? raw["Origin"] ?? "");
   }
 
-  const combined = `${userAgent} ${origin}`.toLowerCase();
-  if (combined.includes("chatgpt") || combined.includes("openai")) {
-    return "chatgpt";
-  }
-  if (combined.includes("gemini") || combined.includes("google")) {
-    return "gemini";
-  }
+  const combined = `${userAgent} ${origin}`;
+  const matched = classifyClient(combined);
+  if (matched) return matched;
+
   return "unknown";
 }
 

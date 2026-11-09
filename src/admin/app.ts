@@ -18,6 +18,18 @@ import { detectIntegrations } from "../core/integrations.js";
 import toolModules from "../tools/index.js";
 import { ESSENTIAL_TOOLS } from "../mcp/server.js";
 
+export interface ClientConnectInfo {
+  id: string;
+  name: string;
+  kind: "web" | "desktop" | "cli" | "editor" | "generic";
+  auth: "oauth" | "bearer" | "url-token";
+  url: string;
+  steps: string[];
+  snippet?: string;
+  snippetLang?: "bash" | "json" | "toml";
+  configPath?: string;
+}
+
 export interface AdminAppDependencies {
   config: AppConfig;
   activity: ActivityLog;
@@ -162,7 +174,195 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
           "Sign in via OAuth using your Access Key (MCP_TOKEN)",
         ];
 
+    const clients: ClientConnectInfo[] = [
+      {
+        id: "chatgpt",
+        name: "ChatGPT",
+        kind: "web",
+        auth: "oauth",
+        url: mcpUrl,
+        steps: publicUrl
+          ? [
+              "Open ChatGPT and go to Settings > Apps & Connectors > Advanced > Developer mode > Create",
+              `MCP Server URL: ${mcpUrl}`,
+              `Authentication: OAuth (sign in with your access key), or No auth with ${mcpUrlWithToken}`,
+            ]
+          : [
+              "NOTE: ChatGPT web requires a public HTTPS URL. Run: docker compose --profile tunnel up -d",
+              "Open ChatGPT and go to Settings > Apps & Connectors > Advanced > Developer mode > Create",
+              `MCP Server URL: ${mcpUrl}`,
+              `Authentication: OAuth (sign in with your access key), or No auth with ${mcpUrlWithToken}`,
+            ],
+      },
+      {
+        id: "gemini",
+        name: "Gemini web",
+        kind: "web",
+        auth: "oauth",
+        url: mcpUrl,
+        steps: publicUrl
+          ? [
+              "Open Gemini and go to Settings > Connected apps > Add custom app",
+              `MCP Server URL: ${mcpUrl}`,
+              "Leave Client ID and secret empty",
+              "Sign in via OAuth using your access key",
+            ]
+          : [
+              "NOTE: Gemini web requires a public HTTPS URL. Run: docker compose --profile tunnel up -d",
+              "Open Gemini and go to Settings > Connected apps > Add custom app",
+              `MCP Server URL: ${mcpUrl}`,
+              "Leave Client ID and secret empty",
+              "Sign in via OAuth using your access key",
+            ],
+      },
+      {
+        id: "claude",
+        name: "Claude.ai / Claude Desktop",
+        kind: "desktop",
+        auth: "oauth",
+        url: mcpUrl,
+        steps: publicUrl
+          ? [
+              "Open Claude and go to Settings > Connectors > Add custom connector",
+              `MCP Server URL: ${mcpUrl}`,
+              "Sign in via OAuth using your access key",
+            ]
+          : [
+              "NOTE: Claude.ai web requires a public HTTPS URL. Run: docker compose --profile tunnel up -d (or use local URL for Claude Desktop)",
+              "Open Claude and go to Settings > Connectors > Add custom connector",
+              `MCP Server URL: ${mcpUrl}`,
+              "Sign in via OAuth using your access key",
+            ],
+      },
+      {
+        id: "claude-code",
+        name: "Claude Code",
+        kind: "cli",
+        auth: "bearer",
+        url: mcpUrl,
+        snippetLang: "bash",
+        snippet: `claude mcp add --transport http local-coder "${mcpUrl}" --header "Authorization: Bearer ${token}"`,
+        steps: [
+          "Run the command below in your terminal:",
+          `claude mcp add --transport http local-coder "${mcpUrl}" --header "Authorization: Bearer ${token}"`,
+        ],
+      },
+      {
+        id: "cursor",
+        name: "Cursor",
+        kind: "editor",
+        auth: "bearer",
+        url: mcpUrl,
+        configPath: "~/.cursor/mcp.json",
+        snippetLang: "json",
+        snippet: JSON.stringify(
+          {
+            mcpServers: {
+              "local-coder": {
+                url: mcpUrl,
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                },
+              },
+            },
+          },
+          null,
+          2
+        ),
+        steps: [
+          "Add the configuration below to ~/.cursor/mcp.json:",
+          "Restart Cursor or reload MCP servers in Settings > Features > MCP",
+        ],
+      },
+      {
+        id: "vscode",
+        name: "VS Code",
+        kind: "editor",
+        auth: "bearer",
+        url: mcpUrl,
+        configPath: ".vscode/mcp.json",
+        snippetLang: "json",
+        snippet: JSON.stringify(
+          {
+            servers: {
+              "local-coder": {
+                type: "http",
+                url: mcpUrl,
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                },
+              },
+            },
+          },
+          null,
+          2
+        ),
+        steps: [
+          "Add the configuration below to .vscode/mcp.json in your workspace:",
+          "Reload MCP servers from the Command Palette",
+        ],
+      },
+      {
+        id: "gemini-cli",
+        name: "Gemini CLI",
+        kind: "cli",
+        auth: "bearer",
+        url: mcpUrl,
+        configPath: "~/.gemini/settings.json",
+        snippetLang: "json",
+        snippet: JSON.stringify(
+          {
+            mcpServers: {
+              "local-coder": {
+                httpUrl: mcpUrl,
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                },
+              },
+            },
+          },
+          null,
+          2
+        ),
+        steps: [
+          "Add the configuration below to ~/.gemini/settings.json:",
+          "Launch your Gemini CLI session",
+        ],
+      },
+      {
+        id: "codex-cli",
+        name: "Codex CLI",
+        kind: "cli",
+        auth: "bearer",
+        url: mcpUrl,
+        configPath: "~/.codex/config.toml",
+        snippetLang: "toml",
+        snippet: `[mcp_servers.local-coder]\nurl = "${mcpUrl}"\nbearer_token_env_var = "LOCAL_CODER_TOKEN"\n# export LOCAL_CODER_TOKEN="${token}"`,
+        steps: [
+          "Add the configuration below to ~/.codex/config.toml:",
+          `[mcp_servers.local-coder]\nurl = "${mcpUrl}"\nbearer_token_env_var = "LOCAL_CODER_TOKEN"`,
+          `Export the token in your shell: export LOCAL_CODER_TOKEN="${token}"`,
+        ],
+      },
+      {
+        id: "generic",
+        name: "Generic MCP Client",
+        kind: "generic",
+        auth: "bearer",
+        url: mcpUrl,
+        snippetLang: "bash",
+        snippet: `curl -s -N -H "Authorization: Bearer ${token}" "${mcpUrl}"`,
+        steps: [
+          "Connect any client supporting remote Streamable HTTP MCP",
+          `Endpoint URL: ${mcpUrl}`,
+          `Header: Authorization: Bearer ${token} (or URL path /mcp/${token})`,
+          `OAuth 2.1 metadata endpoint: ${effectiveBase}/.well-known/oauth-authorization-server`,
+        ],
+      },
+    ];
+
     res.json({
+      clients,
       chatgpt: {
         url: mcpUrlWithToken,
         steps: chatgptSteps,

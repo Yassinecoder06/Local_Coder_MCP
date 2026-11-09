@@ -13,7 +13,7 @@ export async function buildInstructions(ctx: ToolContext): Promise<string> {
 
   parts.push("# Local Coder MCP");
   parts.push(
-    "Turns ChatGPT web and Gemini web into a local coding agent: inspect and modify files, run shell commands, interact with git, and use specialized skills and commands."
+    "Turns your AI client into a local coding agent: inspect and modify files, run shell commands, interact with git, and use specialized skills and commands."
   );
   parts.push(`Active workspace root: ${ctx.workspace.active()}`);
 
