@@ -195,4 +195,23 @@ test("exec tool: code-mode isolated execution", async (t) => {
     assert.equal(res.ok, false);
     assert.match(res.error || "", /Recursive exec call is not allowed/);
   });
+
+  await t.test("queues more than 8 parallel calls instead of failing", async () => {
+    let active = 0, peak = 0;
+    const mockCtx = {
+      ...env.ctx,
+      callTool: async (name: string): Promise<ToolResult> => {
+        active++; peak = Math.max(peak, active);
+        await new Promise((r) => setTimeout(r, 20));
+        active--;
+        return { ok: true, tool: name, summary: "ok" };
+      },
+      callableTools: () => [{ name: "read", description: "Read files" }],
+    };
+    const code = `const rs = await Promise.all(Array.from({ length: 12 }, () => tools.read({ paths: ["a"] }))); text(String(rs.length));`;
+    const res = await execTool.handler({ code }, mockCtx);
+    assert.equal(res.ok, true, res.error);
+    assert.match(JSON.stringify(res.data ?? res.summary), /12/);
+    assert.ok(peak <= 8, `peak concurrency ${peak}`);
+  });
 });

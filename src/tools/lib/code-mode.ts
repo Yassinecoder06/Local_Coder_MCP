@@ -61,7 +61,7 @@ parentPort.on("message", (msg) => {
     const cb = pendingCalls.get(msg.id);
     if (cb) {
       pendingCalls.delete(msg.id);
-      activeCalls--;
+      releaseSlot();
       if (msg.type === "tool_result") {
         cb.resolve(msg.result);
       } else {
@@ -71,29 +71,30 @@ parentPort.on("message", (msg) => {
   }
 });
 
+const waiting = [];
+function releaseSlot() {
+  activeCalls--;
+  const next = waiting.shift();
+  if (next) next();
+}
+
 function callTool(name, args) {
   if (name === "exec") {
-    throw new Error("Recursive exec call is not allowed");
+    return Promise.reject(new Error("Recursive exec call is not allowed"));
   }
   if (totalCalls >= MAX_TOOL_CALLS) {
-    throw new Error(\`Exceeded maximum limit of \${MAX_TOOL_CALLS} tool calls in exec\`);
-  }
-  if (activeCalls >= MAX_CONCURRENT_CALLS) {
-    throw new Error(\`Exceeded limit of \${MAX_CONCURRENT_CALLS} concurrent tool calls in exec\`);
+    return Promise.reject(new Error(\`Exceeded maximum limit of \${MAX_TOOL_CALLS} tool calls in exec\`));
   }
   totalCalls++;
-  activeCalls++;
-
-  return new Promise((resolve, reject) => {
+  // At most MAX_CONCURRENT_CALLS run at once; the rest queue instead of failing.
+  const start = () => new Promise((resolve, reject) => {
+    activeCalls++;
     const id = nextCallId++;
     pendingCalls.set(id, { resolve, reject });
-    parentPort.postMessage({
-      type: "call_tool",
-      id,
-      name,
-      args: args || {},
-    });
+    parentPort.postMessage({ type: "call_tool", id, name, args: args || {} });
   });
+  if (activeCalls < MAX_CONCURRENT_CALLS) return start();
+  return new Promise((resolve, reject) => waiting.push(() => start().then(resolve, reject)));
 }
 
 const tools = new Proxy({}, {
