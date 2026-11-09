@@ -5,6 +5,18 @@ description: "Control Herdr, a terminal multiplexer for coding agents. Use only 
 
 # Herdr
 
+## Web chat playbook
+
+Web chat clients (ChatGPT, Gemini) cap tool calls per reply (~10-20). Conserve tool turns when coordinating:
+- **Discovery (1 call)**: run `herdr agent list` to find active agents and their pane IDs.
+- **Delegation (1 call)**: combine prompt and read in a single `run` call:
+  `herdr agent prompt <pane> "<task>" --wait --until done --until idle && herdr agent read <pane>`
+- **Long tasks**: write instructions to a file (e.g. `TASK.md`) in the worktree, then prompt: `read TASK.md and do it`.
+- **Never inspect internals**: do not cat wrapper scripts or dump environment variables.
+- **Never use `pane run` on agent panes**: use `herdr agent prompt` so Herdr tracks lifecycle states.
+- **Never kill or restart agents** unless explicitly asked by the user.
+- **Verify flags**: check `herdr --help` or `herdr agent --help` directly when needed.
+
 Herdr organizes terminals into workspaces, tabs, and panes, recognizes coding agents running inside panes, and exposes the current session through the `herdr` CLI.
 
 Before issuing any control command, verify that this agent is running inside a Herdr-managed pane:

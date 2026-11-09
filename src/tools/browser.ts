@@ -23,6 +23,71 @@ export function getChromiumPath(): string {
   return process.env.CHROMIUM_PATH || "/usr/bin/chromium";
 }
 
+/**
+ * Trims verbose Playwright / Chromium launch errors by removing the giant
+ * <launching> command-line args line and extracting the first actionable/meaningful error log line.
+ */
+export function trimChromiumError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  if (!raw.includes("<launching>")) {
+    return raw.replace(/^browserType\.[a-zA-Z0-9_]+:\s*/, "").trim();
+  }
+
+  const lines = raw
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  // Extract headline before logs delimiter
+  let headline = "";
+  for (const line of lines) {
+    if (line.includes("<launching>") || line.startsWith("===") || line.startsWith("Call log:")) {
+      break;
+    }
+    const cleaned = line.replace(/^browserType\.[a-zA-Z0-9_]+:\s*/, "").trim();
+    if (cleaned) {
+      headline = cleaned;
+      break;
+    }
+  }
+
+  // Find candidate log lines (exclude launch headers, args line, separators)
+  const candidateLines = lines.filter((line) => {
+    if (line.includes("<launching>")) return false;
+    if (line.includes("<launched>")) return false;
+    if (/^[-=_\*]{3,}/.test(line) || /^[╔╚║╟═]+$/.test(line)) return false;
+    if (/^(Call log|Browser logs):/i.test(line)) return false;
+    if (line.replace(/^browserType\.[a-zA-Z0-9_]+:\s*/, "").trim() === headline) return false;
+    return true;
+  });
+
+  // Prefer lines indicating error or stderr
+  let meaningfulLine = candidateLines.find((l) =>
+    /\[err\]|ERROR:|FATAL:|error|cannot open|failed|check failed|inconsistency/i.test(l)
+  );
+
+  // Fallback to process exit line or any candidate line
+  if (!meaningfulLine) {
+    meaningfulLine = candidateLines.find((l) => /<process did exit:|exitCode=/i.test(l)) || candidateLines[0];
+  }
+
+  if (meaningfulLine) {
+    // Strip bullet points, [pid=...], [err] tags
+    const cleanLog = meaningfulLine
+      .replace(/^[-*]\s*/, "")
+      .replace(/^(\[(pid=\d+|err)\]\s*)+/gi, "")
+      .trim();
+
+    if (headline && headline !== cleanLog) {
+      const cleanHeadline = headline.replace(/[:.!?]$/, "");
+      return `${cleanHeadline}: ${cleanLog}`;
+    }
+    return cleanLog;
+  }
+
+  return headline || "Headless Chromium failed to launch";
+}
+
 interface StaticServer {
   url: string;
   close: () => Promise<void>;
@@ -324,7 +389,7 @@ export const browserCheckTool = defineTool({
 
       return result;
     } catch (err) {
-      return fail("browser_check", err);
+      return fail("browser_check", trimChromiumError(err));
     } finally {
       if (browser) {
         await (browser as Browser).close().catch(() => undefined);

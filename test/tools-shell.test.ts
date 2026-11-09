@@ -15,6 +15,26 @@ test("shell tools: run sync, run background, job status/output, run with stop_jo
     assert.equal(res.ok, true);
     assert.equal(res.data.exit_code, 0);
     assert.match(res.data.output, /hello sync/);
+    assert.ok(!res.summary.includes("Tip: use browser_check"));
+  });
+
+  await t.test("appends browser_check hint when invoking chromium or playwright directly", async () => {
+    // Succeeded command invoking chromium
+    const okRes = await runTool.handler({ command: "echo 'mock chromium' && echo done" }, env.ctx);
+    assert.equal(okRes.ok, true);
+    assert.ok(okRes.summary.includes("Tip: use browser_check for headless browser checks (screenshot + console); raw Chromium may crash in the container."));
+
+    // Failed command mentioning chromium gets prominent warning
+    const failRes = await runTool.handler({ command: "sh -c 'echo chromium failed >&2; exit 1'" }, env.ctx);
+    assert.equal(failRes.ok, true);
+    assert.equal(failRes.data.exit_code, 1);
+    assert.ok(failRes.summary.includes("WARNING: Direct Chromium execution failed"));
+    assert.ok(failRes.summary.includes("Tip: use browser_check"));
+
+    // Command invoking playwright directly appends hint
+    const pwRes = await runTool.handler({ command: "echo 'playwright test mock'" }, env.ctx);
+    assert.equal(pwRes.ok, true);
+    assert.ok(pwRes.summary.includes("Tip: use browser_check"));
   });
 
   await t.test("run background job when exceeding sync window", async () => {

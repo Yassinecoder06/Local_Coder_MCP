@@ -37,7 +37,7 @@ test("builtin skills and commands validation", async (t) => {
     }
   });
 
-  await t.test("all 15 built-in commands are present, valid, and renderable", async () => {
+  await t.test("all 16 built-in commands are present, valid, and renderable", async () => {
     const commands = await commandsRegistry.list();
     const expected = [
       "review",
@@ -55,6 +55,7 @@ test("builtin skills and commands validation", async (t) => {
       "verify",
       "todo",
       "resume",
+      "delegate",
     ];
 
     for (const name of expected) {
@@ -73,6 +74,8 @@ test("builtin skills and commands validation", async (t) => {
         name: "AuthService",
         topic: "REST API",
         action: "audit",
+        agent: "coder",
+        task: "run test suite and report",
       });
       assert.ok(rendered.length > 20, `Rendered command "${name}" should have content`);
     }
