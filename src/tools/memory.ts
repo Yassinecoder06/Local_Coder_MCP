@@ -27,7 +27,7 @@ function runGit(args: string[], cwd: string): Promise<string> {
 export const todoTool = defineTool({
   name: "todo",
   title: "Todo & Plan Memory",
-  description: "Keep a plan for multi-step tasks and update it as you go. Survives reconnects and new chats. Only modifies internal assistant scratch state, never project files.",
+  description: "Keep a plan for multi-step tasks and update it as you go. Survives reconnects and new sessions. Only modifies internal assistant scratch state, never project files.",
   group: "workspace",
   risk: "read",
   input: {
@@ -119,7 +119,7 @@ export const todoTool = defineTool({
 export const resumeTool = defineTool({
   name: "resume",
   title: "Resume Ongoing Work",
-  description: "Call first when the user says continue or starts a new chat about ongoing work. Returns active workspace, todo plan, recent activity, git status, and running background jobs.",
+  description: "Call first when the user says continue or starts a new session about ongoing work. Returns active workspace, todo plan, recent activity, git status, and running background jobs.",
   group: "workspace",
   risk: "read",
   input: {

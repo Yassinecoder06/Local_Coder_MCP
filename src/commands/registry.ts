@@ -12,7 +12,7 @@
  * Commands are exposed two ways:
  *   - as MCP prompts (clients with slash-command UIs)
  *   - via tools `commands_list` / `command_run` (returns the expanded instructions
- *     the model must now follow — works in ChatGPT and Gemini web, which do not
+ *     the model must now follow — works in web chats and AI clients that do not
  *     surface MCP prompts).
  * Sources: USER_COMMANDS_DIR (writable) then BUILTIN_COMMANDS_DIR.
  */

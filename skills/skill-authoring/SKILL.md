@@ -27,7 +27,7 @@ Every `SKILL.md` must start with YAML frontmatter:
 ```markdown
 ---
 name: my-skill-name
-description: "Crisp 1-2 sentence description telling the model WHEN and WHY to activate this skill."
+description: "Crisp 1-2 sentence description telling the AI client WHEN and WHY to activate this skill."
 ---
 
 # My Skill Title
@@ -37,7 +37,7 @@ Markdown body containing guidelines, examples, and rules.
 
 ### Frontmatter Rules:
 - `name`: Must match `^[a-z0-9][a-z0-9-]{0,63}$` (lowercase letters, digits, and hyphens; up to 64 chars).
-- `description`: Written for the agent model, not the end user. Explicitly state the trigger conditions (e.g. "Use when...").
+- `description`: Written for the AI client, not the end user. Explicitly state the trigger conditions (e.g. "Use when...").
 
 ## 3. Skill Sources & Loading Priority
 

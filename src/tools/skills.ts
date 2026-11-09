@@ -88,7 +88,7 @@ export const skillSaveTool = defineTool({
       .string()
       .regex(/^[a-z0-9][a-z0-9-]{0,63}$/)
       .describe("Skill name: lowercase letters, digits, and hyphens (1-64 chars)"),
-    description: z.string().describe("Short description telling when the model should use this skill"),
+    description: z.string().describe("Short description telling when the AI client should use this skill"),
     body: z.string().describe("Markdown instructions/guidelines without frontmatter"),
     files: z.record(z.string(), z.string()).optional().describe("Optional extra files: relative path to utf-8 content map"),
   },
