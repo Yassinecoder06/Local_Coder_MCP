@@ -37,6 +37,10 @@ const Env = z.object({
   AUTH_MODE: z.enum(["token", "oauth", "both", "none"]).default("both"),
   WORKSPACE_ROOTS: z.string().optional(),
   DEFAULT_WORKSPACE: z.string().optional(),
+  /** Folder bind-mounted into Docker (default PROJECTS_DIR); workspace roots edited in the UI must be inside it. */
+  MOUNT_DIR: z.string().optional(),
+  /** Extra areas roots may live in (list). */
+  ALLOWED_ROOTS: z.string().optional(),
   DATA_DIR: z.string().default("./data"),
   /** Built-in skills shipped in the repo (read-only) + user skills dir (writable, first entry of USER_SKILLS_DIR). */
   BUILTIN_SKILLS_DIR: z.string().default("./skills"),
@@ -71,6 +75,9 @@ export interface AppConfig {
   authMode: "token" | "oauth" | "both" | "none";
   workspaceRoots: string[];
   defaultWorkspace: string;
+  /** Areas (absolute) that workspace roots may be inside: env roots + MOUNT_DIR + ALLOWED_ROOTS. */
+  allowedRootAreas: string[];
+  mountDirs: string[];
   dataDir: string;
   builtinSkillsDir: string;
   userSkillsDir: string;
@@ -107,6 +114,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     authMode: e.AUTH_MODE,
     workspaceRoots,
     defaultWorkspace: e.DEFAULT_WORKSPACE ? path.resolve(e.DEFAULT_WORKSPACE) : workspaceRoots[0],
+    mountDirs: e.MOUNT_DIR ? [path.resolve(e.MOUNT_DIR)] : [],
+    allowedRootAreas: [...new Set([...workspaceRoots, ...(e.MOUNT_DIR ? [path.resolve(e.MOUNT_DIR)] : []), ...list(e.ALLOWED_ROOTS)])],
     dataDir: path.resolve(e.DATA_DIR),
     builtinSkillsDir: path.resolve(e.BUILTIN_SKILLS_DIR),
     userSkillsDir: path.resolve(e.USER_SKILLS_DIR),
