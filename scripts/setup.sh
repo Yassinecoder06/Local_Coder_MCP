@@ -33,6 +33,16 @@ if [[ "$yes_mode" != true && -t 0 ]]; then
 fi
 projects_dir=$(mkdir -p "$projects_dir" && cd "$projects_dir" && pwd -P)
 set_env PROJECTS_DIR "$projects_dir"
+mount_dir=$(get_env MOUNT_DIR)
+mount_default=${mount_dir:-$projects_dir}
+if [[ "$yes_mode" != true && -t 0 ]]; then
+  read -r -p "Folder the server may reach (default: PROJECTS_DIR) [$mount_default]: " answer
+  mount_dir=${answer:-$mount_default}
+else
+  mount_dir=$mount_default
+fi
+mount_dir=$(mkdir -p "$mount_dir" && cd "$mount_dir" && pwd -P)
+set_env MOUNT_DIR "$mount_dir"
 # Remove legacy names that collide with Bash's readonly UID/GID variables.
 sed -i '/^UID=/d; /^GID=/d' .env
 set_env HOST_UID "$(id -u)"
