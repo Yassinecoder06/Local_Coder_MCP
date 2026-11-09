@@ -97,6 +97,10 @@ This lets a connected AI client use the `herdr` skill to inspect and drive real 
 
 After edits, inspect diagnostics and run the project's checks so the model can report evidence that the change works. Use `/verify` to identify and run relevant checks; for UI changes, open the running page with `browser_check` and inspect its screenshot. Use `/todo` to keep a concrete checklist for multi-step work and `/resume` to continue from unfinished items later.
 
+## Fewer tool calls
+
+Use `run` with `cmds` to execute up to 20 related shell commands in one Bash session; `cd` and environment changes carry over, and each command reports its exit code. For interactive background commands, use `job` with `stdin` and `poll`. Read related files together in one `read` call using `paths` instead of making one call per file. The planned `exec` tool will orchestrate several tools from one call; until it is available, batch shell commands and file reads directly.
+
 ## Tools
 
 | Tool | What it does |

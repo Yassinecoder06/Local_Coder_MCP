@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
 import { defineTool, type ToolModule } from "../core/types.js";
 import { ok, fail } from "../core/result.js";
 import { jobManager, type RunResult } from "./lib/jobs.js";
@@ -12,10 +13,89 @@ export const DIRECT_BROWSER_RE =
 
 const CHROMIUM_MENTION_RE = /\b(chromium|chrome)\b/i;
 
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function utf8Prefix(buffer: Buffer, maxBytes: number): string {
+  let text = buffer.subarray(0, Math.max(0, maxBytes)).toString("utf-8");
+  while (Buffer.byteLength(text, "utf-8") > maxBytes) text = text.slice(0, -1);
+  return text;
+}
+
+function buildBatchCommand(commands: string[], stopOnError: boolean, token: string): string {
+  const state = `__lc_${token}`;
+  const lines = ["set +e", `${state}_first=0`, `${state}_stop=${stopOnError ? 1 : 0}`];
+
+  commands.forEach((command, index) => {
+    const itemNumber = index + 1;
+    const label = `[${itemNumber}/${commands.length}] $ ${command}`;
+    lines.push(
+      `if [ "$${state}_first" -eq 0 ] || [ "$${state}_stop" -eq 0 ]; then`,
+      `  printf '%s\\n' ${shellQuote(label)}`,
+      `  if eval ${shellQuote(command)}; then ${state}_status=0; else ${state}_status=$?; fi`,
+      `  printf '\\n[${itemNumber}/${commands.length}] exit code: %s\\n' "$${state}_status"`,
+      `  if [ "$${state}_status" -ne 0 ] && [ "$${state}_first" -eq 0 ]; then ${state}_first="$${state}_status"; fi`,
+      "fi"
+    );
+  });
+
+  lines.push(`exit "$${state}_first"`);
+  return lines.join("\n");
+}
+
+function batchItems(
+  commands: string[],
+  capturedOutput: string,
+  maxOutputBytes: number,
+  stopOnError: boolean
+): { cmd: string; exitCode: number | null; output: string; truncated?: boolean; skipped?: boolean }[] {
+  let remainingBytes = Math.max(0, maxOutputBytes);
+  let stopped = false;
+  let cursor = 0;
+
+  return commands.map((cmd, index) => {
+    const label = `[${index + 1}/${commands.length}] $ ${cmd}`;
+    const exitLabel = `[${index + 1}/${commands.length}] exit code: `;
+    const beginAt = capturedOutput.indexOf(label, cursor);
+    const exitAt = beginAt < 0 ? -1 : capturedOutput.indexOf(exitLabel, beginAt + label.length);
+
+    if (beginAt < 0) {
+      if (stopped) {
+        return { cmd, exitCode: null, output: "Skipped because stop_on_error was set.", skipped: true };
+      }
+      return { cmd, exitCode: null, output: "Output unavailable (the batch stopped or exceeded the capture limit).", truncated: true };
+    }
+
+    const endLineAt = exitAt < 0 ? -1 : capturedOutput.indexOf("\n", exitAt);
+    if (exitAt < 0 || endLineAt < 0) {
+      const outputBytes = Buffer.from(capturedOutput.slice(beginAt), "utf-8");
+      const output = utf8Prefix(outputBytes, remainingBytes);
+      remainingBytes = Math.max(0, remainingBytes - Buffer.byteLength(output, "utf-8"));
+      return { cmd, exitCode: null, output, truncated: true };
+    }
+
+    const statusText = capturedOutput.slice(exitAt + exitLabel.length, endLineAt);
+    const exitCode = Number(statusText);
+    if (!Number.isInteger(exitCode)) {
+      return { cmd, exitCode: null, output: "Output unavailable (the batch output was truncated).", truncated: true };
+    }
+    if (stopOnError && exitCode !== 0) stopped = true;
+
+    const outputEnd = endLineAt + 1;
+    const outputBytes = Buffer.from(capturedOutput.slice(beginAt, outputEnd), "utf-8");
+    const truncated = outputBytes.byteLength > remainingBytes;
+    const output = utf8Prefix(outputBytes, remainingBytes);
+    remainingBytes = Math.max(0, remainingBytes - Buffer.byteLength(output, "utf-8"));
+    cursor = outputEnd;
+    return { cmd, exitCode, output, ...(truncated ? { truncated: true } : {}) };
+  });
+}
+
 export const runTool = defineTool({
   name: "run",
   title: "Run Shell Command",
-  description: "Run a bash shell command or stop a background job via stop_job_id. Call run with verify:true after changes, and before saying a task is done. Commands returning within sync timeout return output immediately; longer processes continue in background as jobs.",
+  description: "Run one bash command or batch 1–20 commands in one shell with cmds; batched commands share directory and environment changes and report a separate exit code. Longer processes continue in background as jobs. Use verify:true after changes, and stop_job_id to terminate a job.",
   group: "shell",
   risk: "exec",
   input: {
@@ -23,6 +103,16 @@ export const runTool = defineTool({
       .string()
       .optional()
       .describe("Shell command string to execute in bash (required unless stop_job_id or verify is provided)"),
+    cmds: z
+      .array(z.string())
+      .min(1)
+      .max(20)
+      .optional()
+      .describe("Run 1–20 commands sequentially in one bash process; directory and environment changes carry over"),
+    stop_on_error: z
+      .boolean()
+      .optional()
+      .describe("For cmds batches, stop after the first non-zero command exit code"),
     stop_job_id: z
       .string()
       .optional()
@@ -57,7 +147,11 @@ export const runTool = defineTool({
         });
       }
 
-      if (args.verify && !args.command) {
+      if (args.command !== undefined && args.cmds !== undefined) {
+        return fail("run", "Provide exactly one of command or cmds, not both");
+      }
+
+      if (args.verify && !args.command && !args.cmds) {
         const cwd = ctx.workspace.resolve(args.cwd);
         const syncMs = ctx.config.shellSyncMs;
         const timeoutMs = args.timeout_ms ?? ctx.config.shellTimeoutMs;
@@ -134,8 +228,41 @@ export const runTool = defineTool({
         });
       }
 
+      if (args.cmds) {
+        if (args.verify) return fail("run", "verify:true cannot be combined with cmds");
+
+        const cwd = ctx.workspace.resolve(args.cwd);
+        const syncMs = ctx.config.shellSyncMs;
+        const timeoutMs = args.timeout_ms ?? ctx.config.shellTimeoutMs;
+        const stopOnError = args.stop_on_error ?? false;
+        const command = buildBatchCommand(args.cmds, stopOnError, randomUUID().replace(/-/g, ""));
+        const result = await jobManager.startJob(command, cwd, syncMs, timeoutMs);
+        const items = batchItems(args.cmds, result.output, ctx.config.maxOutputBytes, stopOnError);
+        const isDirectBrowser = args.cmds.some((item) => DIRECT_BROWSER_RE.test(item));
+        let summary = result.running
+          ? `Command batch is running in background (job_id: ${result.job_id})`
+          : result.exit_code === 0
+            ? "Command batch completed successfully (exit code 0)"
+            : `Command batch completed with exit code ${result.exit_code}`;
+
+        if (isDirectBrowser) {
+          const mentionsChromium = args.cmds.some((item) => CHROMIUM_MENTION_RE.test(item)) || CHROMIUM_MENTION_RE.test(result.output);
+          summary = !result.running && result.exit_code !== 0 && mentionsChromium
+            ? `WARNING: Direct Chromium execution failed (exit code ${result.exit_code}). ${BROWSER_CHECK_TIP}`
+            : `${summary}. ${BROWSER_CHECK_TIP}`;
+        }
+
+        return ok("run", summary, {
+          cwd: ctx.workspace.display(cwd),
+          exit_code: result.exit_code,
+          running: result.running,
+          ...(result.running ? { job_id: result.job_id, pid: result.pid } : {}),
+          items,
+        });
+      }
+
       if (!args.command) {
-        return fail("run", "Either command, verify:true, or stop_job_id must be provided");
+        return fail("run", "Provide exactly one of command or cmds, or use verify:true or stop_job_id");
       }
 
       const cwd = ctx.workspace.resolve(args.cwd);
@@ -192,26 +319,30 @@ export const runTool = defineTool({
 export const jobTool = defineTool({
   name: "job",
   title: "Background Job Status",
-  description: "Check status, stream output, or list running background jobs spawned by run. Use action 'status', 'output', or 'list'.",
+  description: "Check status, read full or new output, send input to an interactive job, or list jobs. Use 'stdin' to write input and optionally wait for output, or 'poll' to wait for new output; waits return early when output arrives.",
   group: "shell",
   risk: "read",
   input: {
     action: z
-      .enum(["status", "output", "list"])
+      .enum(["status", "output", "list", "stdin", "poll"])
       .default("status")
       .optional()
-      .describe("Action to perform: status, output, or list"),
-    job_id: z.string().optional().describe("Job ID (required for status and output)"),
+      .describe("Action: status, full output, list, send stdin, or poll for new output"),
+    job_id: z.string().optional().describe("Job ID (required for status, output, stdin, and poll)"),
     limit: z.number().int().optional().describe("Maximum output bytes to return for output action"),
+    input: z.string().optional().describe("Text to write to the job's stdin (required for stdin; include a newline when appropriate)"),
+    wait_ms: z.number().int().min(0).max(10_000).optional().describe("Wait up to 10 seconds for new output (stdin and poll actions)"),
   },
   handler: async (args, ctx) => {
     try {
       const action = args.action ?? (args.job_id ? "status" : "list");
 
-      if (action === "list" || !args.job_id) {
+      if (action === "list") {
         const jobs = jobManager.listJobs();
         return ok("job", `Active/recent background jobs: ${jobs.length}`, { jobs });
       }
+
+      if (!args.job_id) return fail("job", `job_id is required for ${action} action`);
 
       if (action === "status") {
         const job = jobManager.getJob(args.job_id);
@@ -233,10 +364,28 @@ export const jobTool = defineTool({
 
       if (action === "output") {
         const output = jobManager.getJobOutput(args.job_id, args.limit);
+        await jobManager.waitForNewOutput(args.job_id);
         const job = jobManager.getJob(args.job_id);
         return ok("job", `Output for job ${args.job_id} (${output.length} chars)`, {
           job_id: args.job_id,
           running: job?.running ?? false,
+          output,
+        });
+      }
+
+      if (action === "stdin" || action === "poll") {
+        if (action === "stdin") {
+          if (args.input === undefined) return fail("job", "input is required for stdin action");
+          const written = jobManager.writeJobStdin(args.job_id, args.input);
+          if (!written) return fail("job", `Job "${args.job_id}" is not running or no longer accepts input`);
+        }
+
+        const output = await jobManager.waitForNewOutput(args.job_id, args.wait_ms ?? 0);
+        const job = jobManager.getJob(args.job_id);
+        return ok("job", `${action === "stdin" ? "Input sent to" : "Polled"} job ${args.job_id}`, {
+          job_id: args.job_id,
+          running: job?.running ?? false,
+          exit_code: job?.exitCode ?? null,
           output,
         });
       }
