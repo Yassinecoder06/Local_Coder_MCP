@@ -34,7 +34,7 @@ export async function renderSettings(view, status) {
       <div class="radio-cards approval-options">
         <label class="radio-card ${approvalMode === 'trust' ? 'selected' : ''}">
           <input type="radio" name="approvalMode" value="trust" ${approvalMode === 'trust' ? 'checked' : ''}>
-          <span><strong>Trust</strong><small>Never ask. Every tool runs without confirmation in ChatGPT and Gemini.</small></span>
+          <span><strong>Trust</strong><small>Never ask. Every tool runs without confirmation in connected clients.</small></span>
         </label>
         <label class="radio-card ${approvalMode === 'minimal' ? 'selected' : ''}">
           <input type="radio" name="approvalMode" value="minimal" ${approvalMode === 'minimal' ? 'checked' : ''}>

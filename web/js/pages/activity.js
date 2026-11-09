@@ -5,7 +5,24 @@ let activity = [];
 let eventSource;
 let paused = false;
 
-const clientGlyph = (client = '') => ({ chatgpt: '✳', gemini: '✦' })[client.toLowerCase()] || '◉';
+const CLIENTS = {
+  chatgpt: { label: 'ChatGPT', icon: 'C' },
+  gemini: { label: 'Gemini', icon: 'G' },
+  claude: { label: 'Claude', icon: 'C' },
+  'claude-code': { label: 'Claude Code', icon: 'CC' },
+  cursor: { label: 'Cursor', icon: 'Cu' },
+  vscode: { label: 'VS Code', icon: 'VS' },
+  windsurf: { label: 'Windsurf', icon: 'W' },
+  codex: { label: 'Codex', icon: 'Co' },
+  'gemini-cli': { label: 'Gemini CLI', icon: 'G' },
+  'le-chat': { label: 'Le Chat', icon: 'L' },
+};
+
+function clientInfo(name = '') {
+  const raw = String(name).trim();
+  const id = raw.toLowerCase().replaceAll('_', '-').replaceAll(' ', '-');
+  return CLIENTS[id] || { label: raw || 'Other', icon: '·' };
+}
 
 export async function renderActivity(view) {
   activity = await request('/activity?limit=100');
@@ -52,15 +69,18 @@ function togglePause(event) {
 function drawActivity(view) {
   const body = view.querySelector('#activity-body');
   if (!body) return;
-  body.innerHTML = activity.map((entry) => `<tr>
-    <td><span class="client-cell"><span class="client-mini ${escapeHtml((entry.client || '').toLowerCase())}">
-      ${clientGlyph(entry.client)}</span>${escapeHtml(entry.client || 'Client')}</span></td>
+  body.innerHTML = activity.map((entry) => {
+    const client = clientInfo(entry.client);
+    return `<tr>
+    <td><span class="client-cell"><span class="client-mini">${escapeHtml(client.icon)}</span>
+      ${escapeHtml(client.label)}</span></td>
     <td><code>${escapeHtml(entry.tool)}</code></td>
     <td class="args-cell" title="${escapeHtml(entry.args || '')}">${escapeHtml(entry.args || '—')}</td>
     <td class="activity-result-cell"><span class="result ${entry.ok ? 'result-ok' : 'result-error'}">
       ${entry.ok ? '● OK' : '● Error'}</span>${resultSummaryChip(entry)}</td>
     <td>${Number(entry.ms) || 0} ms</td><td title="${escapeHtml(entry.ts)}">${timeAgo(entry.ts)}</td>
-  </tr>`).join('');
+  </tr>`;
+  }).join('');
   view.querySelector('#activity-empty').hidden = activity.length > 0;
   view.querySelector('#activity-count').textContent = `${activity.length} recent events`;
 }
