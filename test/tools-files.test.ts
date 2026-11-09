@@ -50,6 +50,58 @@ test("files tools: read, list, checkpoints, edit_files", async (t) => {
     assert.doesNotMatch(content, /4 \| Line 4/);
   });
 
+  await t.test("read: glob expansion ignores node_modules and dist", async () => {
+    await fs.writeFile(path.join(env.workspaceDir, "glob-one.test"), "one");
+    await fs.writeFile(path.join(env.workspaceDir, "glob-two.test"), "two");
+    await fs.mkdir(path.join(env.workspaceDir, "node_modules"), { recursive: true });
+    await fs.writeFile(path.join(env.workspaceDir, "node_modules", "glob-ignored.test"), "ignored");
+
+    const res = await readTool.handler({ paths: ["*.test"] }, env.ctx);
+    assert.equal(res.ok, true);
+    assert.equal(res.data.files.length, 2);
+    assert.ok(res.data.files.some((f: any) => f.path.includes("glob-one.test")));
+    assert.ok(res.data.files.some((f: any) => f.path.includes("glob-two.test")));
+    assert.ok(!res.data.files.some((f: any) => f.path.includes("node_modules")));
+  });
+
+  await t.test("read: directory path lists contents one level deep", async () => {
+    const dirName = "test-read-dir";
+    await fs.mkdir(path.join(env.workspaceDir, dirName, "sub"), { recursive: true });
+    await fs.writeFile(path.join(env.workspaceDir, dirName, "alpha.txt"), "alpha");
+    await fs.writeFile(path.join(env.workspaceDir, dirName, "beta.txt"), "beta");
+
+    const res = await readTool.handler({ path: dirName }, env.ctx);
+    assert.equal(res.ok, true);
+    assert.equal(res.data.files.length, 1);
+    assert.equal(res.data.files[0].type, "directory");
+    assert.match(res.data.files[0].content, /sub\//);
+    assert.match(res.data.files[0].content, /alpha\.txt/);
+    assert.match(res.data.files[0].content, /beta\.txt/);
+  });
+
+  await t.test("read: truncates files exceeding 256 KB and calls exceeding 512 KB", async () => {
+    // 300 KB file (exceeds 256 KB per-file cap)
+    const bigFile = "big-file.txt";
+    await fs.writeFile(path.join(env.workspaceDir, bigFile), "X".repeat(300 * 1024));
+
+    const res = await readTool.handler({ path: bigFile }, env.ctx);
+    assert.equal(res.ok, true);
+    assert.match(res.data.files[0].content, /truncated: file exceeded 256 KB limit/);
+
+    // Multiple 200 KB files exceeding 512 KB total
+    const f1 = "multi-1.txt";
+    const f2 = "multi-2.txt";
+    const f3 = "multi-3.txt";
+    await fs.writeFile(path.join(env.workspaceDir, f1), "A".repeat(200 * 1024));
+    await fs.writeFile(path.join(env.workspaceDir, f2), "B".repeat(200 * 1024));
+    await fs.writeFile(path.join(env.workspaceDir, f3), "C".repeat(200 * 1024));
+
+    const multiRes = await readTool.handler({ paths: [f1, f2, f3] }, env.ctx);
+    assert.equal(multiRes.ok, true);
+    const combined = multiRes.data.files.map((f: any) => f.content).join("\n");
+    assert.match(combined, /truncated to 512 KB per call limit/);
+  });
+
   await t.test("list directory structure", async () => {
     await fs.mkdir(path.join(env.workspaceDir, "subdir"), { recursive: true });
     await fs.writeFile(path.join(env.workspaceDir, "subdir", "nested.txt"), "nested content");

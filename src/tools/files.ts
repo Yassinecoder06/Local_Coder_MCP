@@ -19,10 +19,16 @@ const IGNORED_DIRS = new Set([
   "coverage",
 ]);
 
+export const DEFAULT_MAX_FILE_BYTES = 256 * 1024; // 256 KB
+export const DEFAULT_MAX_CALL_BYTES = 512 * 1024; // 512 KB
+export const MAX_EXPANDED_GLOB_FILES = 50;
+const GLOB_CHARS_RE = /[*?{}[\]]/;
+
 export const readTool = defineTool({
   name: "read",
   title: "Read Files",
-  description: "Read 1 to N files with numbered lines and optional line ranges. Always batch multiple file paths in a single call to minimize confirmations.",
+  description:
+    "Read 1 to N files or directory listings with glob expansion and numbered lines. Always batch multiple file paths in a single call to minimize confirmations.",
   group: "files",
   risk: "read",
   input: {
@@ -30,26 +36,73 @@ export const readTool = defineTool({
       .array(z.string())
       .default([])
       .optional()
-      .describe("List of file paths to read. Batch multiple files in one call to avoid extra confirmation prompts."),
-    path: z.string().optional().describe("Single file path to read when reading only one file"),
+      .describe(
+        "List of file paths, directory paths, or glob patterns to read (max 50 files). Batch multiple paths in one call to avoid extra confirmation prompts."
+      ),
+    path: z
+      .string()
+      .optional()
+      .describe("Single file path, directory path, or glob pattern to read"),
     offset: z.number().int().min(1).optional().describe("Starting line number (1-based, default 1)"),
-    limit: z.number().int().min(1).optional().describe("Maximum number of lines to read per file"),
+    limit: z.number().int().min(1).optional().describe("Maximum number of lines to read per file or directory"),
   },
   handler: async (args, ctx) => {
     try {
-      const targetPaths: string[] = [];
+      const rawPaths: string[] = [];
       if (args.paths && args.paths.length > 0) {
-        targetPaths.push(...args.paths);
+        rawPaths.push(...args.paths);
       } else if (args.path) {
-        targetPaths.push(args.path);
+        rawPaths.push(args.path);
       } else {
         return fail("read", "Either paths or path must be provided");
+      }
+
+      const activeDir = ctx.workspace.active();
+      const isIgnored = (candidate: string) => {
+        const parts = candidate.split(/[/\\]/);
+        return parts.some((part) => IGNORED_DIRS.has(part));
+      };
+
+      // Expand globs in paths (bounded, max 50 files, ignore node_modules/.git/dist)
+      const targetPaths: string[] = [];
+      for (const p of rawPaths) {
+        if (GLOB_CHARS_RE.test(p)) {
+          const matched: string[] = [];
+          try {
+            const globOptions = path.isAbsolute(p)
+              ? { exclude: isIgnored }
+              : { cwd: activeDir, exclude: isIgnored };
+
+            for await (const entry of fs.glob(p, globOptions)) {
+              matched.push(entry);
+              if (targetPaths.length + matched.length >= MAX_EXPANDED_GLOB_FILES) {
+                break;
+              }
+            }
+          } catch {
+            matched.push(p);
+          }
+
+          if (matched.length > 0) {
+            targetPaths.push(...matched.sort());
+          } else {
+            targetPaths.push(p);
+          }
+        } else {
+          targetPaths.push(p);
+        }
+
+        if (targetPaths.length >= MAX_EXPANDED_GLOB_FILES) {
+          targetPaths.splice(MAX_EXPANDED_GLOB_FILES);
+          break;
+        }
       }
 
       const offset = args.offset ?? 1;
       const limit = args.limit;
       const results: Array<{
         path: string;
+        type?: "file" | "directory";
         total_lines: number;
         offset: number;
         limit?: number;
@@ -57,12 +110,80 @@ export const readTool = defineTool({
       }> = [];
 
       let totalOutputChars = 0;
-      const maxChars = ctx.config.maxOutputBytes;
+      const maxCallBytes = DEFAULT_MAX_CALL_BYTES;
+      const maxFileBytes = DEFAULT_MAX_FILE_BYTES;
 
       for (const p of targetPaths) {
         const absPath = ctx.workspace.resolve(p);
         const displayPath = ctx.workspace.display(absPath);
 
+        let stat: Awaited<ReturnType<typeof fs.stat>>;
+        try {
+          stat = await fs.stat(absPath);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          results.push({
+            path: displayPath,
+            total_lines: 0,
+            offset,
+            content: `Error reading file: ${msg}`,
+          });
+          continue;
+        }
+
+        // Directory path: list one level deep
+        if (stat.isDirectory()) {
+          try {
+            const dirEntries = await fs.readdir(absPath, { withFileTypes: true });
+            dirEntries.sort((a, b) => {
+              if (a.isDirectory() && !b.isDirectory()) return -1;
+              if (!a.isDirectory() && b.isDirectory()) return 1;
+              return a.name.localeCompare(b.name);
+            });
+
+            const padWidth = String(dirEntries.length || 1).length;
+            const lines = dirEntries.map((e, idx) => {
+              const lineNum = String(idx + 1).padStart(padWidth, " ");
+              return `${lineNum} | ${e.name}${e.isDirectory() ? "/" : ""}`;
+            });
+
+            const startIdx = Math.max(0, offset - 1);
+            const endIdx =
+              limit !== undefined ? Math.min(lines.length, startIdx + limit) : lines.length;
+            const selected = lines.slice(startIdx, endIdx);
+            let dirContent = selected.length > 0 ? selected.join("\n") : "(empty directory)";
+
+            if (totalOutputChars + dirContent.length > maxCallBytes) {
+              const remaining = Math.max(0, maxCallBytes - totalOutputChars);
+              dirContent =
+                dirContent.slice(0, remaining) + "\n... [truncated to 512 KB per call limit]";
+            }
+            totalOutputChars += dirContent.length;
+
+            results.push({
+              path: displayPath,
+              type: "directory",
+              total_lines: dirEntries.length,
+              offset,
+              limit,
+              content: dirContent,
+            });
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            results.push({
+              path: displayPath,
+              type: "directory",
+              total_lines: 0,
+              offset,
+              content: `Error reading directory: ${msg}`,
+            });
+          }
+
+          if (totalOutputChars >= maxCallBytes) break;
+          continue;
+        }
+
+        // Regular file read
         let raw: string;
         try {
           raw = await fs.readFile(absPath, "utf-8");
@@ -77,6 +198,12 @@ export const readTool = defineTool({
           continue;
         }
 
+        let fileTruncated = false;
+        if (Buffer.byteLength(raw, "utf-8") > maxFileBytes) {
+          raw = raw.slice(0, maxFileBytes);
+          fileTruncated = true;
+        }
+
         const lines = raw.split(/\r?\n/);
         const startIdx = Math.max(0, offset - 1);
         const endIdx = limit !== undefined ? Math.min(lines.length, startIdx + limit) : lines.length;
@@ -89,21 +216,29 @@ export const readTool = defineTool({
         });
 
         let fileContent = numbered.join("\n");
-        if (totalOutputChars + fileContent.length > maxChars) {
-          const remaining = Math.max(0, maxChars - totalOutputChars);
-          fileContent = fileContent.slice(0, remaining) + "\n... [truncated to fit max output size]";
+        if (fileTruncated) {
+          fileContent += "\n... [truncated: file exceeded 256 KB limit]";
         }
-        totalOutputChars += fileContent.length;
+
+        if (totalOutputChars + fileContent.length > maxCallBytes) {
+          const remaining = Math.max(0, maxCallBytes - totalOutputChars);
+          fileContent =
+            fileContent.slice(0, remaining) + "\n... [truncated to 512 KB per call limit]";
+          totalOutputChars = maxCallBytes;
+        } else {
+          totalOutputChars += fileContent.length;
+        }
 
         results.push({
           path: displayPath,
+          type: "file",
           total_lines: lines.length,
           offset,
           limit,
           content: fileContent,
         });
 
-        if (totalOutputChars >= maxChars) break;
+        if (totalOutputChars >= maxCallBytes) break;
       }
 
       return ok("read", `Read ${results.length} file(s)`, { files: results });
