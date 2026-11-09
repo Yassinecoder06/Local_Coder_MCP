@@ -14,6 +14,9 @@ export interface Job {
   child: ChildProcess | null;
   outputBuffer: string[];
   totalBytes: number;
+  pendingOutputBuffer: string[];
+  pendingOutputBytes: number;
+  outputWaiters: Set<() => void>;
 }
 
 export interface JobSummary {
@@ -89,6 +92,9 @@ class JobManager {
       child: null,
       outputBuffer: [],
       totalBytes: 0,
+      pendingOutputBuffer: [],
+      pendingOutputBytes: 0,
+      outputWaiters: new Set(),
     };
 
     const env: NodeJS.ProcessEnv = {
@@ -104,18 +110,26 @@ class JobManager {
       const str = typeof chunk === "string" ? chunk : chunk.toString("utf-8");
       job.outputBuffer.push(str);
       job.totalBytes += Buffer.byteLength(str, "utf-8");
+      job.pendingOutputBuffer.push(str);
+      job.pendingOutputBytes += Buffer.byteLength(str, "utf-8");
 
       // Trim buffer if too large
       while (job.totalBytes > MAX_JOB_OUTPUT_BYTES && job.outputBuffer.length > 1) {
         const removed = job.outputBuffer.shift()!;
         job.totalBytes -= Buffer.byteLength(removed, "utf-8");
       }
+
+      while (job.pendingOutputBytes > MAX_JOB_OUTPUT_BYTES && job.pendingOutputBuffer.length > 1) {
+        const removed = job.pendingOutputBuffer.shift()!;
+        job.pendingOutputBytes -= Buffer.byteLength(removed, "utf-8");
+      }
+      for (const waiter of [...job.outputWaiters]) waiter();
     };
 
     const child = spawn("bash", ["-lc", command], {
       cwd,
       env,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
       detached: true,
     });
 
@@ -125,6 +139,9 @@ class JobManager {
 
     child.stdout?.on("data", appendOutput);
     child.stderr?.on("data", appendOutput);
+    child.stdin?.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code !== "EPIPE") appendOutput(`\nstdin error: ${err.message}\n`);
+    });
 
     // Timeout timer to automatically terminate hanging processes
     let timeoutTimer: NodeJS.Timeout | null = null;
@@ -151,6 +168,7 @@ class JobManager {
         job.signal = sig;
         job.finishedAt = new Date().toISOString();
         job.child = null;
+        for (const waiter of [...job.outputWaiters]) waiter();
         resolve({ exitCode: code, signal: sig });
       });
 
@@ -161,6 +179,7 @@ class JobManager {
         job.exitCode = 1;
         job.finishedAt = new Date().toISOString();
         job.child = null;
+        for (const waiter of [...job.outputWaiters]) waiter();
         resolve({ exitCode: 1, signal: null });
       });
     });
@@ -176,6 +195,7 @@ class JobManager {
     ]);
 
     if (!race.timeout) {
+      this.drainPendingOutput(job);
       return {
         job_id: id,
         running: false,
@@ -184,6 +204,7 @@ class JobManager {
       };
     }
 
+    this.drainPendingOutput(job);
     return {
       job_id: id,
       running: true,
@@ -196,6 +217,42 @@ class JobManager {
 
   getJob(id: string): Job | undefined {
     return this.jobs.get(id);
+  }
+
+  writeJobStdin(id: string, input: string): boolean {
+    const job = this.jobs.get(id);
+    if (!job) throw new Error(`Job "${id}" not found`);
+    if (!job.running || !job.child?.stdin || job.child.stdin.destroyed || job.child.stdin.writableEnded) return false;
+    job.child.stdin.write(input);
+    return true;
+  }
+
+  async waitForNewOutput(id: string, waitMs = 0): Promise<string> {
+    const job = this.jobs.get(id);
+    if (!job) throw new Error(`Job "${id}" not found`);
+
+    const available = this.drainPendingOutput(job);
+    if (available || !job.running || waitMs <= 0) return available;
+
+    await new Promise<void>((resolve) => {
+      let timer: NodeJS.Timeout;
+      const finish = () => {
+        clearTimeout(timer);
+        job.outputWaiters.delete(finish);
+        resolve();
+      };
+      timer = setTimeout(finish, Math.min(waitMs, 10_000));
+      job.outputWaiters.add(finish);
+    });
+
+    return this.drainPendingOutput(job);
+  }
+
+  private drainPendingOutput(job: Job): string {
+    const output = job.pendingOutputBuffer.join("");
+    job.pendingOutputBuffer = [];
+    job.pendingOutputBytes = 0;
+    return output;
   }
 
   getJobOutput(id: string, limitBytes?: number): string {
