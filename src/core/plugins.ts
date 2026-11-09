@@ -87,6 +87,52 @@ export interface PluginTool {
   published: boolean;
   /** Why not published: "disabled" | "limit" | "conflict". */
   reason?: "disabled" | "limit" | "conflict";
+  /**
+   * Human-readable changes made to the upstream schema so strict clients (Gemini) accept it,
+   * e.g. "limit: exclusiveMinimum 0 → minimum 0". Empty/absent = published unchanged.
+   * `inputSchema` above is always the normalised schema (what clients see).
+   */
+  adjustments?: string[];
+  /**
+   * Callable from the main connector through `exec` (plugins.<id>.<tool>()).
+   * Rule: tool enabled && plugin ready && (plugin.trusted || annotations.readOnlyHint === true).
+   * Conflicts and the publication limit do not apply to exec (it addresses tools by plugin id).
+   */
+  execAllowed: boolean;
+}
+
+/**
+ * Normalises a JSON Schema into the subset every client accepts (Gemini is the strictest).
+ * Implemented in src/plugins/schema.ts as `normalizeToolSchema`. Pure, never throws.
+ * Rules (each applied change adds one adjustment line "<path>: <what>"):
+ *   - drop $schema, $id, $comment, examples, not, if/then/else, patternProperties,
+ *     dependentRequired, dependentSchemas, unevaluatedProperties, contentMediaType, contentEncoding;
+ *   - exclusiveMinimum/Maximum (number) → minimum/maximum + "(must be > n)" in description;
+ *     boolean draft-4 form → dropped;
+ *   - const v → enum [v]; non-string enum → dropped, "one of: …" appended to description;
+ *   - type [T, "null"] → T; anyOf/oneOf with a {type:"null"} branch → that branch removed,
+ *     single remaining branch inlined;
+ *   - $ref to #/$defs|definitions inlined (depth ≤ 8; recursive → {type:"object"}), $defs removed;
+ *   - allOf of objects merged (properties + required);
+ *   - root forced to {type:"object", properties:{}} when missing; `required` entries not in
+ *     properties removed;
+ *   - kept as-is: type, properties, required, items, enum (strings), description, default,
+ *     minimum, maximum, minItems, maxItems, minLength, maxLength, pattern, format,
+ *     additionalProperties, propertyNames, anyOf (after the null rule), title, nullable.
+ */
+export type NormalizeToolSchema = (schema: unknown) => { schema: Record<string, unknown>; adjustments: string[] };
+
+/**
+ * "Paste anything" import. Implemented in src/plugins/import.ts as `parsePluginImport(text)`.
+ * Accepts: a Claude/Cursor/VS Code style JSON config ({"mcpServers":{…}} or {"servers":{…}}),
+ * a single server object ({command,args,env} or {url|serverUrl,headers}, `type` optional),
+ * a shell command line ("npx -y pkg --flag 'quoted arg'", leading KEY=value env assignments allowed),
+ * or a bare https:// / loopback http:// URL. Never runs anything.
+ * Empty env/header values (or "<…>", "YOUR_…" placeholders) are reported in `needsSecrets`.
+ */
+export interface PluginImportResult {
+  plugins: Array<PluginInput & { needsSecrets: { key: string; where: "env" | "header" }[] }>;
+  warnings: string[];
 }
 
 export interface PluginDetail extends PluginSummary {
@@ -146,6 +192,10 @@ export interface PluginHub {
    * (content / structuredContent / isError). Never retries. Times out after callTimeoutMs.
    */
   callTool(name: string, args: Record<string, unknown>): Promise<{ content: unknown[]; structuredContent?: unknown; isError?: boolean }>;
+  /** Every enabled tool of every ready plugin (normalised, with execAllowed). Used by the exec bridge. */
+  execTools(): PluginTool[];
+  /** Like callTool but addressed by plugin id (no conflict ambiguity). Throws if unknown/not ready. */
+  callPluginTool(plugin: string, tool: string, args: Record<string, unknown>): Promise<{ content: unknown[]; structuredContent?: unknown; isError?: boolean }>;
   /** Fires when the published tool set or any status changes. */
   subscribe(fn: () => void): () => void;
 }

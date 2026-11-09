@@ -47,6 +47,25 @@ export interface ToolContext {
   callTool?: (name: string, args: Record<string, unknown>) => Promise<ToolResult>;
   /** Names callable through callTool (enabled, not `exec`). */
   callableTools?: () => { name: string; description: string }[];
+  /**
+   * Plugin tools reachable from the main connector (via `exec` and `plugin_tools`). Wired by
+   * src/mcp/server.ts from the PluginHub. Undefined when there is no hub. See src/core/plugins.ts.
+   */
+  plugins?: PluginBridge;
+}
+
+/** Contract (orchestrator): how core tools reach plugin tools without a second connector. */
+export interface PluginBridge {
+  /** Ready plugins and their enabled tools (normalised schemas), with execAllowed per tool. */
+  list(): import("./plugins.js").PluginTool[];
+  /**
+   * Calls `tool` on plugin `plugin` (id; "_" also accepted for "-"). Refuses (ok:false, never throws)
+   * when the plugin is not ready, the tool is disabled/unknown, or execAllowed is false.
+   * Converts the upstream CallToolResult: text parts joined into `summary`/`data.text`, image parts into
+   * `images`, structuredContent into `data.structured`, isError into ok:false. Logs activity
+   * with tool "<plugin>.<tool>" and via:"exec".
+   */
+  call(plugin: string, tool: string, args: Record<string, unknown>): Promise<ToolResult>;
 }
 
 export interface ToolDefinition<S extends z.ZodRawShape = z.ZodRawShape> {

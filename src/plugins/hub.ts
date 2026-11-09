@@ -505,6 +505,7 @@ export function createPluginHub(config: AppConfig): PluginHub {
             annotations,
             enabled: true,
             published: true,
+            execAllowed: false, // TODO(agy1): exec rule from src/core/plugins.ts
           });
         }
       }
@@ -596,6 +597,7 @@ export function createPluginHub(config: AppConfig): PluginHub {
           enabled: !isDisabled,
           published: isPublished,
           reason,
+          execAllowed: false, // TODO(agy1)
         };
       });
 
@@ -754,6 +756,7 @@ export function createPluginHub(config: AppConfig): PluginHub {
         inputSchema: {},
         enabled,
         published: enabled && publishedCache.some((pt) => pt.plugin === id && pt.name === tool),
+        execAllowed: false,
       };
     },
 
@@ -775,6 +778,14 @@ export function createPluginHub(config: AppConfig): PluginHub {
       }
 
       return await inst.callTool(name, args);
+    },
+
+    execTools(): PluginTool[] {
+      return []; // TODO(agy1)
+    },
+
+    async callPluginTool(): Promise<{ content: unknown[]; structuredContent?: unknown; isError?: boolean }> {
+      throw new Error("not implemented"); // TODO(agy1)
     },
 
     subscribe(fn: () => void): () => void {
