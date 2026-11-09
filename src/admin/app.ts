@@ -9,6 +9,7 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import type { AppConfig } from "../config.js";
 import type { ActivityLog } from "../core/activity.js";
 import type { Board, RequestStatus } from "../core/board.js";
+import type { PluginHub } from "../core/plugins.js";
 import type { CommandRegistry } from "../commands/registry.js";
 import type { SkillRegistry } from "../skills/registry.js";
 import { getSettings, updateSettings } from "../core/settings.js";
@@ -19,6 +20,7 @@ import { detectIntegrations } from "../core/integrations.js";
 import toolModules from "../tools/index.js";
 import { ESSENTIAL_TOOLS } from "../mcp/server.js";
 import { getAgentMemory } from "../tools/lib/memory.js";
+import { loadRecipes } from "../plugins/recipes.js";
 
 export interface ClientConnectInfo {
   id: string;
@@ -39,6 +41,7 @@ export interface AdminAppDependencies {
   commands: CommandRegistry;
   sessionManager: SessionManager;
   board?: Board;
+  pluginHub?: PluginHub;
 }
 
 function isValidHost(hostHeader?: string): boolean {
@@ -107,6 +110,7 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
         local: localUrl,
         public: publicUrl,
         mcpUrlWithToken: `${effectiveBase}/mcp/${deps.config.mcpToken}`,
+        pluginsUrlWithToken: `${effectiveBase}/mcp/plugins/${deps.config.mcpToken}`,
         oauthIssuer: effectiveBase,
       },
     });
@@ -148,6 +152,7 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
     const effectiveBase = publicUrl || localUrl;
     const mcpUrlWithToken = `${effectiveBase}/mcp/${token}`;
     const mcpUrl = `${effectiveBase}/mcp`;
+    const pluginsUrlWithToken = `${effectiveBase}/mcp/plugins/${token}`;
 
     const chatgptSteps = publicUrl
       ? [
@@ -375,6 +380,9 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
       gemini: {
         url: mcpUrl,
         steps: geminiSteps,
+      },
+      plugins: {
+        url: pluginsUrlWithToken,
       },
       token,
     });
@@ -721,6 +729,133 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
       clearInterval(heartbeat);
       unsubscribe();
     });
+  });
+
+  // 10. Plugins Hub API
+  app.get("/api/plugins", (_req: Request, res: Response) => {
+    res.json(deps.pluginHub?.list() ?? []);
+  });
+
+  app.get("/api/plugins/recipes", async (_req: Request, res: Response) => {
+    try {
+      const recipes = await loadRecipes();
+      res.json(recipes);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post("/api/plugins", async (req: Request, res: Response) => {
+    if (!deps.pluginHub) {
+      res.status(503).json({ error: "Plugin hub is not available" });
+      return;
+    }
+    if (!req.body || typeof req.body !== "object") {
+      res.status(400).json({ error: "Missing plugin input body" });
+      return;
+    }
+    try {
+      const summary = await deps.pluginHub.add(req.body);
+      res.status(201).json(summary);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.get("/api/plugins/:id", (req: Request, res: Response) => {
+    if (!deps.pluginHub) {
+      res.status(503).json({ error: "Plugin hub is not available" });
+      return;
+    }
+    const id = String(req.params.id);
+    const detail = deps.pluginHub.get(id);
+    if (!detail) {
+      res.status(404).json({ error: `Plugin not found: ${id}` });
+      return;
+    }
+    res.json(detail);
+  });
+
+  app.patch("/api/plugins/:id", async (req: Request, res: Response) => {
+    if (!deps.pluginHub) {
+      res.status(503).json({ error: "Plugin hub is not available" });
+      return;
+    }
+    const id = String(req.params.id);
+    const existing = deps.pluginHub.get(id);
+    if (!existing) {
+      res.status(404).json({ error: `Plugin not found: ${id}` });
+      return;
+    }
+    try {
+      const updated = await deps.pluginHub.update(id, req.body || {});
+      res.json(updated);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.delete("/api/plugins/:id", async (req: Request, res: Response) => {
+    if (!deps.pluginHub) {
+      res.status(503).json({ error: "Plugin hub is not available" });
+      return;
+    }
+    const id = String(req.params.id);
+    const existing = deps.pluginHub.get(id);
+    if (!existing) {
+      res.status(404).json({ error: `Plugin not found: ${id}` });
+      return;
+    }
+    try {
+      await deps.pluginHub.remove(id);
+      res.status(204).end();
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post("/api/plugins/:id/restart", async (req: Request, res: Response) => {
+    if (!deps.pluginHub) {
+      res.status(503).json({ error: "Plugin hub is not available" });
+      return;
+    }
+    const id = String(req.params.id);
+    const existing = deps.pluginHub.get(id);
+    if (!existing) {
+      res.status(404).json({ error: `Plugin not found: ${id}` });
+      return;
+    }
+    try {
+      const restarted = await deps.pluginHub.restart(id);
+      res.json(restarted);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.patch("/api/plugins/:id/tools/:tool", async (req: Request, res: Response) => {
+    if (!deps.pluginHub) {
+      res.status(503).json({ error: "Plugin hub is not available" });
+      return;
+    }
+    const id = String(req.params.id);
+    const tool = String(req.params.tool);
+    const { enabled } = req.body || {};
+    if (typeof enabled !== "boolean") {
+      res.status(400).json({ error: "Missing boolean 'enabled'" });
+      return;
+    }
+    const existing = deps.pluginHub.get(id);
+    if (!existing) {
+      res.status(404).json({ error: `Plugin not found: ${id}` });
+      return;
+    }
+    try {
+      const updatedTool = await deps.pluginHub.setToolEnabled(id, tool, enabled);
+      res.json(updatedTool);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   // Static serving of web/ directory at /

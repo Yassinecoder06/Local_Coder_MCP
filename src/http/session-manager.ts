@@ -10,6 +10,7 @@ import {
   SUPPORTED_PROTOCOL_VERSIONS,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import type { AppConfig } from "../config.js";
 import type { ActivityLog } from "../core/activity.js";
 import type { Board } from "../core/board.js";
@@ -26,10 +27,16 @@ import { createMcpServer } from "../mcp/server.js";
 const SESSION_TTL_MS = 60 * 60 * 1000; // 1 hour idle TTL
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
+export type ServerFactory = (
+  context: ToolContext,
+  sessionId: string,
+  getHeaders?: () => { userAgent?: string; origin?: string } | undefined
+) => Promise<McpServer | Server>;
+
 export interface McpSession {
   sessionId: string;
   transport: StreamableHTTPServerTransport;
-  server: McpServer;
+  server: McpServer | Server;
   context: ToolContext;
   createdAt: number;
   lastAccessedAt: number;
@@ -42,6 +49,7 @@ export interface SessionManagerDependencies {
   skills: SkillRegistry;
   commands: CommandRegistry;
   board?: Board;
+  serverFactory?: ServerFactory;
 }
 
 function negotiateProtocolVersion(requested?: string): string {
@@ -112,10 +120,23 @@ export class SessionManager {
       // Update instructions on the session server
       try {
         const newInstructions = await buildInstructions(session.context);
-        (session.server.server as any)._instructions = newInstructions;
+        const s = session.server as any;
+        if (s.server) s.server._instructions = newInstructions;
+        else s._instructions = newInstructions;
       } catch {}
 
       // Send notifications/tools/list_changed
+      try {
+        (session.server as any).sendToolListChanged();
+      } catch {}
+    }
+  }
+
+  public notifyToolListChanged(newInstructions?: string): void {
+    for (const session of this.sessions.values()) {
+      if (newInstructions !== undefined) {
+        (session.server as any)._instructions = newInstructions;
+      }
       try {
         (session.server as any).sendToolListChanged();
       } catch {}
@@ -161,7 +182,8 @@ export class SessionManager {
     });
 
     let sessionRef: McpSession | undefined;
-    const server = await createMcpServer(context, sessionId, () => sessionRef?.latestHeaders);
+    const factory = this.deps.serverFactory ?? createMcpServer;
+    const server = await factory(context, sessionId, () => sessionRef?.latestHeaders);
     await server.connect(transport);
 
     if (forcedSessionId) {

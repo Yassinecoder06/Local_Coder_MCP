@@ -56,9 +56,9 @@ Built-in commands in `commands/`: `review`, `test`, `fix`, `commit`, `explain`, 
 Static UI served from `web/` at `/`. No auth (bound to host loopback), but reject requests whose `Host` header isn't localhost/127.0.0.1 (DNS-rebinding guard).
 | method & path | response / body |
 |---|---|
-| `GET /api/status` | `{ version, uptimeSec, authMode, toolProfile, approvalMode, sessions, workspaceRoots, defaultWorkspace, endpoints: { local, public, mcpUrlWithToken, oauthIssuer } }` (`mcpUrlWithToken` = `<public or local>/mcp/<token>`) |
+| `GET /api/status` | `{ version, uptimeSec, authMode, toolProfile, approvalMode, sessions, workspaceRoots, defaultWorkspace, endpoints: { local, public, mcpUrlWithToken, pluginsUrlWithToken, oauthIssuer } }` (`mcpUrlWithToken` = `<public or local>/mcp/<token>`) |
 | `GET /api/health` | `{ ok, version, uptime, mcpReachable }` (proxies MCP `/health`) |
-| `GET /api/connect` | `{ clients: ClientConnectInfo[], chatgpt: { url, steps }, gemini: { url, steps }, token }` (client connection info and snippets for ChatGPT, Gemini, Claude, Claude Code, Cursor, VS Code, Gemini CLI, Codex CLI, and generic MCP clients) |
+| `GET /api/connect` | `{ clients: ClientConnectInfo[], chatgpt: { url, steps }, gemini: { url, steps }, plugins: { url }, token }` (client connection info and snippets for ChatGPT, Gemini, Claude, Claude Code, Cursor, VS Code, Gemini CLI, Codex CLI, and generic MCP clients) |
 | `POST /api/token/rotate` | `{ token }` (persist to DATA_DIR/token, invalidates OAuth tokens) |
 | `GET /api/tools` | `[{ name, title, description, group, risk, enabled, profile: "essential"|"full" }]` |
 | `PATCH /api/tools/:name` | body `{ enabled }` |
@@ -72,6 +72,14 @@ Static UI served from `web/` at `/`. No auth (bound to host loopback), but rejec
 | `GET /api/settings` / `PATCH /api/settings` | settings object |
 | `GET /api/activity?limit=100` | `ActivityEntry[]` |
 | `GET /api/activity/stream` | SSE, `data: ActivityEntry` per event |
+| `GET /api/plugins` | `PluginSummary[]` |
+| `GET /api/plugins/recipes` | `PluginRecipe[]` |
+| `POST /api/plugins` | body `PluginInput` → `PluginSummary` |
+| `GET /api/plugins/:id` | `PluginDetail` |
+| `PATCH /api/plugins/:id` | body `Partial<PluginInput> & { enabled? }` → `PluginSummary` |
+| `DELETE /api/plugins/:id` | 204 |
+| `POST /api/plugins/:id/restart` | `PluginSummary` |
+| `PATCH /api/plugins/:id/tools/:tool` | body `{ enabled }` → `PluginTool` |
 Errors: `{ error: string }` with 4xx/5xx.
 
 ## Environment (codex2 documents in .env.example; parsed only in src/config.ts)
