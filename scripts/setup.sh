@@ -58,7 +58,14 @@ mkdir -p data
 if [[ "$herdr_enabled" == true ]]; then echo "herdr integration: enabled"; else echo "herdr integration: disabled"; fi
 docker compose up -d --build
 echo
-echo "Local Coder MCP is starting. Admin: http://localhost:8788"
-echo "Open the admin page to copy the MCP connection details."
+admin_port=$(get_env ADMIN_PORT)
+port=$(get_env PORT)
+public_url=$(get_env PUBLIC_URL)
+admin_port=${admin_port:-8788}
+port=${port:-8787}
+public_url=${public_url%/}
+base_url=${public_url:-http://localhost:$port}
+echo "Local Coder MCP is starting. MCP URL: ${base_url}/mcp"
+echo "Open http://localhost:${admin_port} and pick your client on the Connect page."
 echo "For a public Quick Tunnel, run: docker compose --profile tunnel up -d"
 echo "Its URL will appear automatically in the admin UI. Set PUBLIC_URL only for named or third-party tunnels."
