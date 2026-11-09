@@ -20,6 +20,7 @@ export const ESSENTIAL_TOOLS = new Set([
   "checkpoints",
   "edit_files",
   "run",
+  "exec",
   "job",
   "git",
   "git_write",
@@ -33,7 +34,6 @@ export const ESSENTIAL_TOOLS = new Set([
   "status",
   "todo",
   "resume",
-  "browser_check",
 ]);
 
 function summarizeArgs(args: unknown): string {
@@ -140,6 +140,83 @@ export async function createMcpServer(
 
   // Flatten tool definitions from all imported modules
   const allTools = (toolModules ?? []).flat();
+  const toolMap = new Map<string, (typeof allTools)[number]>();
+  for (const t of allTools) {
+    if (t?.name) toolMap.set(t.name, t);
+  }
+
+  let currentExtra: any = undefined;
+
+  // Provide ctx.callableTools
+  ctx.callableTools = (): { name: string; description: string }[] => {
+    const currentSettings = getSettings();
+    const currentProfile = currentSettings.toolProfile ?? ctx.config.toolProfile;
+    const currentDisabled = new Set(currentSettings.disabledTools);
+
+    const list: { name: string; description: string }[] = [];
+    for (const t of allTools) {
+      if (!t || !t.name) continue;
+      if (t.name === "exec") continue;
+      if (currentDisabled.has(t.name)) continue;
+      if (currentProfile === "essential" && !ESSENTIAL_TOOLS.has(t.name)) continue;
+      list.push({ name: t.name, description: t.description });
+    }
+    return list;
+  };
+
+  // Provide ctx.callTool
+  ctx.callTool = async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
+    const start = Date.now();
+    let res: ToolResult;
+
+    if (name === "exec") {
+      res = fail("exec", "Recursion refusal: cannot call exec from within callTool");
+    } else {
+      const currentSettings = getSettings();
+      const currentProfile = currentSettings.toolProfile ?? ctx.config.toolProfile;
+      const currentDisabled = new Set(currentSettings.disabledTools);
+      const targetTool = toolMap.get(name);
+
+      if (!targetTool) {
+        res = fail(name, `Unknown tool: ${name}`);
+      } else if (currentDisabled.has(name)) {
+        res = fail(name, `Tool is disabled: ${name}`);
+      } else if (currentProfile === "essential" && !ESSENTIAL_TOOLS.has(name)) {
+        res = fail(name, `Tool '${name}' is not available in profile '${currentProfile}'`);
+      } else {
+        const schema = targetTool.input instanceof z.ZodType ? targetTool.input : z.object(targetTool.input);
+        const parsed = schema.safeParse(args ?? {});
+        if (!parsed.success) {
+          res = fail(name, `Invalid arguments for tool '${name}': ${parsed.error.message}`);
+        } else {
+          try {
+            res = await targetTool.handler(parsed.data as any, ctx);
+          } catch (err) {
+            res = fail(name, err);
+          }
+        }
+      }
+    }
+
+    const ms = Date.now() - start;
+    const clientVersion = server.server.getClientVersion();
+    const headers = currentExtra?.requestInfo?.headers ?? getHeaders?.();
+    const client = inferClient(clientVersion?.name, headers);
+    const sid = (currentExtra?.sessionId || sessionId || "").slice(0, 8) || undefined;
+
+    ctx.activity.record({
+      session: sid,
+      client,
+      tool: name,
+      args: summarizeArgs(args),
+      ok: res.ok,
+      summary: res.summary || (res.ok ? "OK" : res.error || "Failed"),
+      ms,
+      via: "exec",
+    });
+
+    return res;
+  };
 
   for (const tool of allTools) {
     if (!tool || !tool.name) continue;
@@ -158,12 +235,16 @@ export async function createMcpServer(
         annotations,
       },
       async (args: any, extra: any) => {
+        const prevExtra = currentExtra;
+        currentExtra = extra;
         const start = Date.now();
         let res: ToolResult;
         try {
           res = await tool.handler(args, ctx);
         } catch (err) {
           res = fail(tool.name, err);
+        } finally {
+          currentExtra = prevExtra;
         }
         const ms = Date.now() - start;
 

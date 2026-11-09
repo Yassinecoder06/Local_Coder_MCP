@@ -75,6 +75,14 @@ describe("Tool-Call Budget and Instructions Guidelines", () => {
       "Must state tool calls may be capped"
     );
     assert.ok(
+      instructions.includes("for 3+ related calls use `exec` (one JS program calling tools in parallel)"),
+      "Must advise using exec for 3+ related calls"
+    );
+    assert.ok(
+      instructions.includes("`run` accepts `cmds` (up to 20 commands, one shell)"),
+      "Must advise that run accepts cmds"
+    );
+    assert.ok(
       instructions.includes("batch shell work into one `run` (chain with && / ;)"),
       "Must advise batching shell work"
     );

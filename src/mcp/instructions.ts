@@ -45,7 +45,8 @@ export async function buildInstructions(ctx: ToolContext): Promise<string> {
   parts.push(`
 ## Tool-call budget
 - the client may cap tool calls per reply;
-- batch shell work into one \`run\` (chain with && / ;);
+- for 3+ related calls use \`exec\` (one JS program calling tools in parallel);
+- \`run\` accepts \`cmds\` (up to 20 commands, one shell); batch shell work into one \`run\` (chain with && / ;);
 - read many files in one \`read\` call;
 - skip exploration that is not needed (no env dumps, no inspecting binaries/wrapper scripts);
 - call \`resume\` after "continue";
