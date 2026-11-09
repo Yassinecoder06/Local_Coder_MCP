@@ -1,10 +1,11 @@
-import { request } from './js/api.js';
+import { request, streamBoard } from './js/api.js';
 import { setRouteListener } from './js/router.js';
 import { toast } from './js/ui.js';
 import { renderActivity, closeActivityStream } from './js/pages/activity.js';
 import { renderCommands } from './js/pages/commands.js';
 import { renderConnect } from './js/pages/connect.js';
 import { renderSettings } from './js/pages/settings.js';
+import { renderRequests, closeBoardStream, refreshOpenRequestCount } from './js/pages/requests.js';
 import { renderSkills } from './js/pages/skills.js';
 import { renderTools } from './js/pages/tools.js';
 
@@ -16,6 +17,7 @@ let healthChecked = false;
 
 async function renderRoute(route) {
   if (route !== 'activity') closeActivityStream();
+  if (route !== 'requests') closeBoardStream();
   view.innerHTML = '<div class="skeleton skeleton-title"></div><div class="skeleton skeleton-card"></div>';
 
   try {
@@ -32,6 +34,7 @@ async function renderRoute(route) {
       commands: () => renderCommands(view),
       tools: () => renderTools(view, serverStatus),
       activity: () => renderActivity(view),
+      requests: () => renderRequests(view),
       settings: () => renderSettings(view, serverStatus),
     };
     await pages[route]();
@@ -200,3 +203,8 @@ function applyTheme(theme = localStorage.getItem('lc-theme') || 'auto') {
 
 applyTheme();
 setRouteListener(renderRoute);
+refreshOpenRequestCount();
+streamBoard((event) => {
+  if (event.type === 'request') refreshOpenRequestCount();
+  document.dispatchEvent(new CustomEvent('board:event', { detail: event }));
+});

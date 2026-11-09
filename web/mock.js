@@ -300,6 +300,49 @@ let activity = [
   },
 ];
 const listeners = new Set();
+const boardListeners = new Set();
+let requests = [
+  {
+    id: 'req-setup-1', createdAt: new Date(Date.now() - 180000).toISOString(),
+    updatedAt: new Date(Date.now() - 180000).toISOString(), workspace: '/workspace/demo',
+    command: 'npm install\nnpm run dev', cwd: '/workspace/demo',
+    purpose: 'Start the local app so I can inspect the updated dashboard in a browser.',
+    expectedFiles: ['package-lock.json'], constraints: 'Run from the project root.', status: 'open',
+  },
+  {
+    id: 'req-closed-1', createdAt: new Date(Date.now() - 86400000).toISOString(),
+    updatedAt: new Date(Date.now() - 82000000).toISOString(), workspace: '/workspace/demo',
+    command: 'npm run typecheck', cwd: '/workspace/demo', purpose: 'Confirm TypeScript is clean.',
+    expectedFiles: [], status: 'done', note: 'Passed locally.',
+  },
+];
+let finishes = [
+  {
+    id: 'finish-demo-1', createdAt: new Date(Date.now() - 3600000).toISOString(),
+    workspace: '/workspace/demo', summary: 'Added a responsive project settings panel.',
+    changedFiles: ['web/js/pages/settings.js', 'web/styles.css'],
+    evidence: {
+      verify: { ok: true, at: new Date(Date.now() - 3700000).toISOString(), summary: '3/3 checks passed' },
+      browserCheck: { ok: true, at: new Date(Date.now() - 3650000).toISOString(), summary: '0 console errors' },
+      git: { files: 2, insertions: 84, deletions: 12, branch: 'feat/settings-panel' }, openRequests: 0,
+    }, verified: true, warnings: [],
+  },
+  {
+    id: 'finish-demo-2', createdAt: new Date(Date.now() - 86400000).toISOString(),
+    workspace: '/workspace/another-project', summary: 'Prepared the migration notes and updated the schema.',
+    changedFiles: ['README.md', 'db/schema.sql'],
+    evidence: { git: { files: 2, insertions: 42, deletions: 5 }, openRequests: 1 },
+    verified: false, warnings: ['No passing verify or browser check was recorded.', '1 open request remains.'],
+  },
+];
+let plan = {
+  workspace: '/workspace/demo', updatedAt: new Date(Date.now() - 300000).toISOString(),
+  todos: [
+    { text: 'Inspect existing settings flow', status: 'done' },
+    { text: 'Add the settings panel and validation', status: 'in_progress' },
+    { text: 'Run typecheck and browser check', status: 'pending' },
+  ],
+};
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -313,6 +356,27 @@ export async function request(path, options = {}) {
   await new Promise((resolve) => setTimeout(resolve, 40));
   const method = options.method || 'GET';
   const body = options.body ? JSON.parse(options.body) : {};
+
+  if (path === '/requests' || path.startsWith('/requests?')) {
+    const params = new URLSearchParams(path.slice(path.indexOf('?') + 1));
+    const statusFilter = params.get('status');
+    const workspaceFilter = params.get('workspace');
+    return clone(requests.filter((item) => (!statusFilter || item.status === statusFilter)
+      && (!workspaceFilter || item.workspace === workspaceFilter)));
+  }
+  const requestMatch = path.match(/^\/requests\/([^/?]+)$/);
+  if (requestMatch && method === 'POST') {
+    const item = requests.find((entry) => entry.id === decodeURIComponent(requestMatch[1]));
+    if (!item) fail('Request not found');
+    if (!['done', 'skipped'].includes(body.status)) fail("Invalid status: expected 'done' or 'skipped'");
+    item.status = body.status;
+    item.updatedAt = new Date().toISOString();
+    if (body.note?.trim()) item.note = body.note.trim();
+    emitBoard({ type: 'request', request: clone(item) });
+    return clone(item);
+  }
+  if (path.startsWith('/finishes')) return clone(finishes);
+  if (path.startsWith('/plan')) return clone(plan);
 
   if (path === '/status') return clone(status);
   if (path === '/health') {
@@ -436,4 +500,13 @@ function upsert(items, value) {
 export function stream(onEntry) {
   listeners.add(onEntry);
   return { close: () => listeners.delete(onEntry) };
+}
+
+export function streamBoard(onEvent, onError = () => {}) {
+  boardListeners.add(onEvent);
+  return { close: () => boardListeners.delete(onEvent), onError };
+}
+
+function emitBoard(event) {
+  for (const listener of boardListeners) listener(clone(event));
 }
