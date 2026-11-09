@@ -5,11 +5,13 @@ import express, { type Express, type Request, type Response } from "express";
 import type { AppConfig } from "../config.js";
 import type { ActivityLog } from "../core/activity.js";
 import type { Board } from "../core/board.js";
+import type { PluginHub } from "../core/plugins.js";
 import type { CommandRegistry } from "../commands/registry.js";
 import type { SkillRegistry } from "../skills/registry.js";
 import { createAuthMiddleware } from "./auth-middleware.js";
 import { createOAuthRouter } from "./oauth-routes.js";
 import { SessionManager } from "./session-manager.js";
+import { createPluginsMcpServer } from "../mcp/plugins-server.js";
 
 export interface McpAppDependencies {
   config: AppConfig;
@@ -17,12 +19,27 @@ export interface McpAppDependencies {
   skills: SkillRegistry;
   commands: CommandRegistry;
   sessionManager?: SessionManager;
+  pluginsSessionManager?: SessionManager;
   board?: Board;
+  pluginHub?: PluginHub;
 }
 
-export function createMcpApp(deps: McpAppDependencies): { app: Express; sessionManager: SessionManager } {
+export function createMcpApp(deps: McpAppDependencies): {
+  app: Express;
+  sessionManager: SessionManager;
+  pluginsSessionManager?: SessionManager;
+} {
   const app = express();
   const sessionManager = deps.sessionManager ?? new SessionManager(deps);
+  const pluginsSessionManager =
+    deps.pluginsSessionManager ??
+    (deps.pluginHub
+      ? new SessionManager({
+          ...deps,
+          serverFactory: (_ctx, sid, getHeaders) =>
+            createPluginsMcpServer(deps.config, deps.pluginHub!, deps.activity, sid, getHeaders),
+        })
+      : undefined);
 
   // CORS middleware supporting ChatGPT web and Gemini web
   app.use((req: Request, res: Response, next) => {
@@ -85,8 +102,32 @@ export function createMcpApp(deps: McpAppDependencies): { app: Express; sessionM
     }
   };
 
+  // Plugins MCP endpoints (POST, GET, DELETE /mcp/plugins and /mcp/plugins/:urlToken)
+  const pluginsHandler = async (req: Request, res: Response) => {
+    if (!pluginsSessionManager) {
+      res.status(503).json({ error: "Plugin hub is not available" });
+      return;
+    }
+    try {
+      await pluginsSessionManager.handleRequest(req, res);
+    } catch (err) {
+      console.error("[mcp-plugins] Error handling request:", err);
+      if (!res.headersSent) {
+        res.status(500).json({
+          jsonrpc: "2.0",
+          error: { code: -32603, message: err instanceof Error ? err.message : String(err) },
+          id: req.body?.id ?? null,
+        });
+      }
+    }
+  };
+
+  // Mount /mcp/plugins first so it does not match /mcp/:urlToken
+  app.all("/mcp/plugins", authMiddleware, pluginsHandler);
+  app.all("/mcp/plugins/:urlToken", authMiddleware, pluginsHandler);
+
   app.all("/mcp", authMiddleware, mcpHandler);
   app.all("/mcp/:urlToken", authMiddleware, mcpHandler);
 
-  return { app, sessionManager };
+  return { app, sessionManager, pluginsSessionManager };
 }

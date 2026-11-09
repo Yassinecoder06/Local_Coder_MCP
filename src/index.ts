@@ -12,6 +12,8 @@ import path from "node:path";
 import { loadConfig } from "./config.js";
 import { createActivityLog } from "./core/activity.js";
 import { createBoard } from "./core/board.js";
+import { createPluginHub } from "./plugins/hub.js";
+import { buildPluginsInstructions } from "./mcp/plugins-server.js";
 import { initSettings, getSettings, updateSettings } from "./core/settings.js";
 import { createAdminApp } from "./admin/app.js";
 import { createMcpApp } from "./http/app.js";
@@ -49,6 +51,10 @@ async function main() {
   // 3b. Create board for user requests, finish reports, and live plan events
   const board = createBoard(config.dataDir);
 
+  // 3c. Create and start external MCP plugins hub
+  const pluginHub = createPluginHub(config);
+  await pluginHub.start();
+
   // 4. Initialize activity log
   const activityLog = createActivityLog(path.join(config.dataDir, "activity.jsonl"));
 
@@ -57,14 +63,22 @@ async function main() {
   const commandRegistry = createCommandRegistry(config);
 
   // 6. Create MCP Express app & Session Manager
-  const { app: mcpApp, sessionManager } = createMcpApp({
+  const { app: mcpApp, sessionManager, pluginsSessionManager } = createMcpApp({
     config,
     activity: activityLog,
     skills: skillRegistry,
     commands: commandRegistry,
     board,
+    pluginHub,
   });
   sessionManager.startCleanup();
+  pluginsSessionManager?.startCleanup();
+
+  if (pluginsSessionManager) {
+    pluginHub.subscribe(() => {
+      pluginsSessionManager.notifyToolListChanged(buildPluginsInstructions(pluginHub));
+    });
+  }
 
   // 7. Create Admin Express app
   const adminApp = createAdminApp({
@@ -74,6 +88,7 @@ async function main() {
     commands: commandRegistry,
     sessionManager,
     board,
+    pluginHub,
   });
 
   // 8. Start HTTP listeners
@@ -104,6 +119,8 @@ async function main() {
   const shutdown = () => {
     console.log("\n[local-coder-mcp] Shutting down gracefully...");
     sessionManager.stopCleanup();
+    pluginsSessionManager?.stopCleanup();
+    void pluginHub.stop().catch(() => {});
     mcpServer.close(() => {
       adminServer.close(() => {
         console.log("[local-coder-mcp] Stopped.");
