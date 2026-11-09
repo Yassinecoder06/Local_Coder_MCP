@@ -14,6 +14,45 @@ Browser on this machine ──────────────────�
                                       Docker ──────┴── /data + mounted projects
 ```
 
+## What it can do
+
+Local Coder turns any AI chat into a coding agent that works on **your real projects, on your machine**. It doesn't hand you code to paste: it reads, edits, runs, tests and verifies the work itself.
+
+### 🧑‍💻 Real coding agent in any chat
+- **Works on your actual files.** Read, search, edit, move and undo across your projects. Every edit makes a checkpoint you can roll back, and diagnostics run right after each change.
+- **Runs your terminal.** Builds, tests, installs and dev servers. Long commands keep running in the background, and the model can type into interactive prompts.
+- **Uses git properly.** Status, diffs, history and blame, then commit, branch, stash and push.
+- **Remembers where it was.** A task plan and `resume` survive reconnects and new chats; say "continue" and it picks up from there.
+
+### ✅ Proves its work instead of claiming it
+- **Runs the right checks itself.** `run verify:true` finds and runs the project's checks (typecheck, tests, lint).
+- **Tests UIs in a real browser.** `browser_check` opens your app in headless Chromium, clicks and types, collects console errors and failed requests, and sends back a **screenshot** the model can see. With the Playwright plugin it gets a full browser session it can drive step by step.
+- **A "done" you can trust.** When the model calls `finish`, the server checks the evidence: a passing check after the last edit, the git changes and no open requests. Each report is marked **Verified** or **Not verified**, with the reasons.
+
+### ⚡ Built for the limits of web chats
+- **One call does the work of many.** `exec` runs a small JavaScript program that calls the other tools in parallel (up to 32 calls in one approval). `run` takes up to 20 commands in one shell, and `read` takes many files and folders at once. This keeps web chats under their tool-calls-per-reply cap.
+- **Few or no approval prompts.** Read-only tools never ask. In Minimal mode only 4 tools ask, once each, and Trust mode never asks. You can switch modes live.
+- **Survives restarts.** Stale sessions recover on their own, so a server restart doesn't break the chat.
+
+### 🤝 You stay in control
+- **The model can ask you for a step.** For sudo, logins, secrets or hardware it posts the exact command as a card on **Admin → Requests**, with **Copy / Mark done / Skip**. It never runs those commands itself, and it can check that the files it expected now exist.
+- **A live plan.** See the model's current task list update as it works.
+- **Activity log.** Every tool call, from every client, appears live in the admin UI, including the calls made inside `exec`.
+
+### 🧩 Extend it in minutes
+- **Skills:** drop a folder with a `SKILL.md` in it, import it in the UI, or ask the chat to save one. Built-ins: herdr, UI design, code review, git workflow, Docker dev, skill authoring.
+- **Commands:** reusable task recipes such as `/review`, `/fix`, `/test`, `/ship`, `/verify` and `/delegate`. They show up as slash commands where the client supports them, and as `command_run` everywhere else.
+- **Plugins hub:** plug in other MCP servers (Playwright, Fetch, Memory, GitHub or your own) from the **Plugins** page. Their tools are served on a second address, so your main tool list stays small. Each tool can be switched on or off, and secrets are masked.
+- **Agent teams with herdr:** drive real terminal agents (Claude Code, Codex, Gemini CLI and others) on your machine. Hand a task to an agent and get its report back in one call.
+
+### 🔒 Safe by default, easy to run
+- **Runs in Docker** as your user. Projects are mounted at the same paths, and you pick which folders are reachable from **Settings → Workspace roots**, with a folder browser.
+- **Locked down by default:**
+  - A secret access key, with OAuth 2.1 + PKCE login for web apps.
+  - The admin UI is local-only, with a DNS-rebinding guard.
+  - Every path is checked against the allowed folders, including through symlinks.
+- **Any client, one setup:** ChatGPT, Gemini, Claude, Claude Code, Cursor, VS Code, Codex CLI, Gemini CLI and Le Chat all use the same server and the same key. The admin **Connect** page shows the exact steps for each.
+
 ## Quick start
 
 1. Clone the repository:
@@ -26,7 +65,7 @@ Browser on this machine ──────────────────�
 3. Open [http://localhost:8788](http://localhost:8788) and copy the connection URL and access key shown on the admin **Connect** page.
 4. Connect any compatible client using the endpoint and access key on the admin **Connect** page. Remote clients need a public HTTPS URL; see [Getting a public HTTPS URL](#getting-a-public-https-url).
 
-Your project directory defaults to `~/Projects`. It is mounted at the same absolute path inside the container, so file paths stay identical. Change it in `.env` and restart with `docker compose up -d`.
+Your project directory defaults to `~/Projects`. It is mounted at the same absolute path inside the container, so file paths stay identical. Change which folders the server uses any time in **Admin → Settings → Workspace roots** (see below).
 
 ## Change project folders
 
@@ -107,26 +146,38 @@ After edits, inspect diagnostics and run the project's checks so the model can r
 
 ## Fewer tool calls
 
-Use `run` with `cmds` to execute up to 20 related shell commands in one Bash session; `cd` and environment changes carry over, and each command reports its exit code. For interactive background commands, use `job` with `stdin` and `poll`. Read related files together in one `read` call using `paths` instead of making one call per file. The planned `exec` tool will orchestrate several tools from one call; until it is available, batch shell commands and file reads directly.
+Web chats cap how many tools the model can call per reply, so Local Coder lets one call do more:
+
+- **`exec`** runs a short JavaScript program that calls other tools: `const [a, b] = await Promise.all([tools.read({paths: ["package.json"]}), tools.git({subcommand: "status"})]); text(a.summary);` (up to 32 calls, 8 at a time, 60 s; only what you pass to `text()`/`image()` comes back).
+- **`run` with `cmds`** executes up to 20 commands in one Bash session; `cd` and environment changes carry over, and each command reports its own exit code (`stop_on_error` is optional).
+- **`job` with `stdin` and `poll`** drives interactive background commands.
+- **`read`** takes many `paths` at once, expands globs, lists directories, and returns up to 256 KB per file.
+
+If a client still hits its cap, say "continue": the model calls `resume` and carries on.
 
 ## Working with the model
 
-If the model needs you to run a command, it can post a request card in **Admin → Activity**. Use **Copy** to run the exact command in its stated folder, then choose **Mark done** or **Skip**; the server never runs it for you. The model can check your response with `user_request_status`. A live Plan panel reflects its current todo list. When the model calls `finish`, the Admin Activity page shows its report and evidence. **Verified** means the server found a passing `verify` or `browser_check` and no open requests; otherwise the report includes warnings.
+If the model needs you to run a command, it posts a request card on **Admin → Requests** (the sidebar badge shows how many are open). Use **Copy** to run the exact command in its stated folder, then choose **Mark done** or **Skip**; the server never runs it for you. The model can check your response with `user_request_status`. The same page shows a live Plan panel with its current todo list, and the reports from `finish` with their evidence. **Verified** means the server found a passing `verify` or `browser_check` and no open requests; otherwise the report includes warnings.
 
 ## Tools
 
 | Tool | What it does |
 |---|---|
-| `workspace_info`, `workspace_switch` | Inspect or switch the active workspace |
-| `read`, `list`, `search` | Read files, browse directories, and search content or paths |
-| `checkpoints` | List recent file change checkpoints |
-| `edit_files` | Batch file writing, replacement, patching, moving, copying, deletion, directory creation, and undo |
-| `run`, `job` | Run shell commands, inspect background jobs, or stop a job with `stop_job_id` |
-| `browser_check` | Open a page in headless Chromium and return a screenshot |
-| `git`, `git_write` | Inspect git state; add, commit, branch, stash, and other write operations |
-| `skills_list`, `skill_load`, `skill_save` | Find, load, and create skills |
-| `commands_list`, `command_run` | Browse and render command prompts |
+| `workspace_info`, `workspace_switch` | Inspect or switch the active project |
+| `read`, `list`, `search` | Read many files at once (globs, directories), browse, and search content or paths |
+| `edit_files`, `checkpoints` | Batch write, replace, patch, move, copy, delete and undo, with diagnostics after each edit; list checkpoints |
+| `run`, `job` | Run shell commands or batches (`cmds`), checks (`verify: true`), background jobs with `stdin`/`poll` |
+| `exec` | Run a JavaScript program that calls other tools in parallel: many steps in one call |
+| `browser_check` | Open a page in headless Chromium, interact, collect console errors and return a screenshot |
+| `git`, `git_write` | Inspect git state; add, commit, branch, stash, pull, push and merge |
+| `ask_user`, `user_request_status` | Hand you one exact step (shown as a card) and check whether it's done |
+| `finish` | Report the task as done; the server checks the evidence and marks it Verified or not |
+| `todo`, `resume` | Keep a task plan and pick up unfinished work after a reconnect |
+| `skills_list`, `skill_load`, `skill_save` | Find, load and create skills |
+| `commands_list`, `command_run` | Browse and render command recipes |
 | `fetch_url`, `status` | Fetch a URL or inspect server status |
+
+Plugin tools (Playwright, Fetch, Memory, GitHub, your own servers) are served on the separate plugins endpoint.
 
 The default `TOOL_PROFILE=essential` is tuned for web chat. Set `TOOL_PROFILE=full` in `.env` to expose additional tools as they are available.
 
@@ -185,6 +236,7 @@ The server can read and change files and run shell commands in mounted workspace
 - **Quick Tunnel URL is missing:** wait a few seconds and check `docker compose --profile tunnel logs -f tunnel`.
 - **Tool-call limit per turn reached:** this is a client-side cap. Say “continue” to resume, and batch related commands to use fewer calls.
 - **Headless Chromium crashed:** use `browser_check` for page verification. Rebuild the Docker image to install the Chromium wrapper for raw headless Chromium commands.
+- **A folder is missing from the folder picker:** it is outside `MOUNT_DIR`. Set `MOUNT_DIR` to a parent folder in `.env` and run `make up`.
 
 ## License
 
