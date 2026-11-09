@@ -68,7 +68,7 @@ echo "$initialize" | jq -e '.result.serverInfo.name or .result.protocolVersion' 
 echo "MCP initialize: ok"
 rpc '{"jsonrpc":"2.0","method":"notifications/initialized"}' >/dev/null
 tools=$(json_response "$(rpc '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')")
-echo "$tools" | jq -e '[.result.tools[].name] | index("status") != null and index("read") != null and index("browser_check") != null' >/dev/null
+echo "$tools" | jq -e '[.result.tools[].name] | index("status") != null and index("read") != null and index("browser_check") != null and index("ask_user") != null and index("user_request_status") != null and index("finish") != null' >/dev/null
 status=$(json_response "$(rpc '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"status","arguments":{}}}')")
 echo "$status" | jq -e '.result and (.error | not) and (.result.isError != true)' >/dev/null
 echo "MCP tools/call status: ok"
@@ -100,4 +100,57 @@ curl --fail --silent --show-error "http://127.0.0.1:${ADMIN_PORT}/api/status" | 
 echo "Admin API: ok"
 curl --fail --silent --show-error "http://127.0.0.1:${ADMIN_PORT}/api/activity" | jq -e 'any(.[]; .client == "claude-code" and .tool == "status")' >/dev/null
 echo "Admin activity client claude-code: ok"
+
+# Exercise the human request flow through MCP and the Admin API. Build arguments
+# from the published schemas so this smoke test follows the tools' own field names.
+admin="http://127.0.0.1:${ADMIN_PORT}"
+call_tool() {
+  local id="$1" name="$2" arguments="$3" payload
+  payload=$(jq -cn --argjson id "$id" --arg name "$name" --argjson arguments "$arguments" \
+    '{jsonrpc:"2.0",id:$id,method:"tools/call",params:{name:$name,arguments:$arguments}}')
+  json_response "$(rpc "$payload")"
+}
+tool_properties() {
+  echo "$tools" | jq -c --arg name "$1" '.result.tools[] | select(.name == $name) | .inputSchema.properties // {}'
+}
+
+ask_properties=$(tool_properties ask_user)
+echo "$ask_properties" | jq -e 'has("command") and has("cwd") and has("purpose")' >/dev/null
+ask_args=$(jq -cn --arg command "printf 'Local Coder E2E request\\n' > '$fixture'" \
+  --arg cwd "$projects_dir" --arg purpose "Exercise the human request card flow in the isolated E2E stack." \
+  --argjson files "$(jq -cn --arg fixture "$fixture" '[ $fixture ]')" --argjson properties "$ask_properties" '
+    {command:$command,cwd:$cwd,purpose:$purpose}
+    | if ($properties | has("expected_files")) then .expected_files=$files
+      elif ($properties | has("expectedFiles")) then .expectedFiles=$files else . end
+  ')
+ask_result=$(call_tool 8 ask_user "$ask_args")
+echo "$ask_result" | jq -e '.result and (.error | not) and (.result.isError != true)' >/dev/null
+request_id=$(echo "$ask_result" | jq -er '[.result.structuredContent // {} | .. | objects | select(.status? == "open" and (.id? | type == "string")) | .id] | .[0]')
+workspace_query=$(jq -rn --arg workspace "$projects_dir" '$workspace | @uri')
+curl --fail --silent --show-error "$admin/api/requests?status=open&workspace=$workspace_query" \
+  | jq -e --arg id "$request_id" 'any(.[]; .id == $id and .status == "open")' >/dev/null
+echo "MCP ask_user and Admin request card: ok"
+
+curl --fail --silent --show-error -X POST -H 'Content-Type: application/json' \
+  -d '{"status":"done","note":"Completed by the isolated E2E check."}' "$admin/api/requests/$request_id" \
+  | jq -e --arg id "$request_id" '.id == $id and .status == "done"' >/dev/null
+status_properties=$(tool_properties user_request_status)
+status_key=$(echo "$status_properties" | jq -er '["request_id","requestId","id"] | map(select(. as $key | $properties | has($key))) | .[0]' --argjson properties "$status_properties")
+status_args=$(jq -cn --arg key "$status_key" --arg id "$request_id" '{($key):$id}')
+request_status=$(call_tool 9 user_request_status "$status_args")
+echo "$request_status" | jq -e '(.result.structuredContent // {}) | .. | objects | select(.status? == "done")' >/dev/null
+echo "MCP user_request_status: done"
+
+finish_properties=$(tool_properties finish)
+echo "$finish_properties" | jq -e 'has("summary")' >/dev/null
+finish_args=$(jq -cn --arg summary "Local Coder E2E finish report" --argjson files '[]' --argjson properties "$finish_properties" '
+  {summary:$summary}
+  | if ($properties | has("changed_files")) then .changed_files=$files
+    elif ($properties | has("changedFiles")) then .changedFiles=$files else . end
+')
+finish_result=$(call_tool 10 finish "$finish_args")
+echo "$finish_result" | jq -e '.result and (.error | not) and (.result.isError != true)' >/dev/null
+curl --fail --silent --show-error "$admin/api/finishes?limit=20" \
+  | jq -e 'any(.[]; .summary == "Local Coder E2E finish report" and (.verified | type == "boolean") and .verified == true)' >/dev/null
+echo "MCP finish and verified Admin report: ok"
 echo "E2E smoke test passed."
