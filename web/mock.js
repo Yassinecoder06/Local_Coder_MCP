@@ -8,6 +8,8 @@ const status = {
   sessions: 1,
   workspaceRoots: ['/workspace/demo', '/workspace/another-project'],
   defaultWorkspace: '/workspace/demo',
+  workspaceSource: 'env',
+  mountDirs: ['/workspace'],
   endpoints: {
     local: 'http://localhost:8787',
     public: null,
@@ -160,6 +162,25 @@ let settings = {
   disabledSkills: [],
   approvalMode: 'minimal',
   toolProfile: 'essential',
+};
+const envWorkspaceRoots = ['/workspace/demo', '/workspace/another-project'];
+const mockDirectories = {
+  '/workspace': { dirs: [
+    { name: 'demo', path: '/workspace/demo', isGitRepo: true },
+    { name: 'another-project', path: '/workspace/another-project', isGitRepo: true },
+    { name: 'notes', path: '/workspace/notes', isGitRepo: false },
+  ] },
+  '/workspace/demo': { parent: '/workspace', dirs: [
+    { name: 'src', path: '/workspace/demo/src', isGitRepo: false },
+    { name: 'web', path: '/workspace/demo/web', isGitRepo: false },
+  ] },
+  '/workspace/another-project': { parent: '/workspace', dirs: [
+    { name: 'docs', path: '/workspace/another-project/docs', isGitRepo: false },
+  ] },
+  '/workspace/notes': { parent: '/workspace', dirs: [] },
+  '/workspace/demo/src': { parent: '/workspace/demo', dirs: [] },
+  '/workspace/demo/web': { parent: '/workspace/demo', dirs: [] },
+  '/workspace/another-project/docs': { parent: '/workspace/another-project', dirs: [] },
 };
 let activity = [
   {
@@ -397,6 +418,30 @@ export async function request(path, options = {}) {
   await new Promise((resolve) => setTimeout(resolve, 40));
   const method = options.method || 'GET';
   const body = options.body ? JSON.parse(options.body) : {};
+
+  if (path.startsWith('/fs/dirs?') && method === 'GET') {
+    const params = new URLSearchParams(path.slice(path.indexOf('?') + 1));
+    const dirPath = params.get('path') || status.mountDirs[0];
+    const directory = mockDirectories[dirPath];
+    if (!directory) fail(`Folder is not available: ${dirPath}`);
+    return { path: dirPath, ...(directory.parent ? { parent: directory.parent } : {}), dirs: clone(directory.dirs) };
+  }
+  if (path === '/workspaces' && method === 'PUT') {
+    const roots = Array.isArray(body.roots) ? body.roots : [];
+    const defaultRoot = body.defaultWorkspace || '';
+    if (defaultRoot && !roots.includes(defaultRoot)) fail('Default workspace must be one of the configured roots.');
+    for (const root of roots) if (!mockDirectories[root]) fail(`Folder does not exist or is outside the mounted area: ${root}`);
+    status.workspaceRoots = clone(roots);
+    status.defaultWorkspace = defaultRoot || roots[0] || '';
+    status.workspaceSource = 'settings';
+    return { roots: clone(roots), defaultWorkspace: status.defaultWorkspace, source: 'settings' };
+  }
+  if (path === '/workspaces' && method === 'DELETE') {
+    status.workspaceRoots = clone(envWorkspaceRoots);
+    status.defaultWorkspace = envWorkspaceRoots[0];
+    status.workspaceSource = 'env';
+    return null;
+  }
 
   if (path === '/plugins/recipes') return clone(pluginRecipes);
   if (path === '/plugins' && method === 'GET') return clone(plugins);
