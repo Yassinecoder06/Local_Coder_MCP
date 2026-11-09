@@ -12,6 +12,7 @@ const status = {
     local: 'http://localhost:8787',
     public: null,
     mcpUrlWithToken: `http://localhost:8787/mcp/${token}`,
+    pluginsUrlWithToken: `http://localhost:8787/mcp/plugins/${token}`,
     oauthIssuer: '',
   },
   integrations: {
@@ -343,6 +344,46 @@ let plan = {
     { text: 'Run typecheck and browser check', status: 'pending' },
   ],
 };
+const MASKED = '••••••';
+let plugins = [
+  {
+    id: 'calendar', name: 'Team Calendar', enabled: true, trusted: false,
+    transport: { type: 'stdio', command: 'npx', args: ['-y', '@demo/calendar-mcp'], env: { CALENDAR_KEY: MASKED } },
+    recipe: 'team-calendar', createdAt: new Date(Date.now() - 86400000).toISOString(),
+    status: { state: 'ready', toolCount: 3, publishedCount: 3, startedAt: new Date(Date.now() - 600000).toISOString(), stderrTail: [] },
+  },
+  {
+    id: 'issue-tracker', name: 'Issue Tracker', enabled: true, trusted: true,
+    transport: { type: 'http', url: 'https://issues.example.test/mcp', headers: { Authorization: MASKED } },
+    createdAt: new Date(Date.now() - 7200000).toISOString(),
+    status: { state: 'error', error: 'Connection refused by upstream server', toolCount: 2, publishedCount: 0, stderrTail: ['Connecting to https://issues.example.test/mcp', 'Connection refused by upstream server'] },
+  },
+];
+let pluginTools = {
+  calendar: [
+    { plugin: 'calendar', name: 'events_list', description: 'List events in a calendar.', enabled: true, published: true, inputSchema: { type: 'object' } },
+    { plugin: 'calendar', name: 'event_create', description: 'Create a calendar event.', enabled: true, published: true, inputSchema: { type: 'object' } },
+    { plugin: 'calendar', name: 'event_delete', description: 'Delete an event.', enabled: true, published: true, inputSchema: { type: 'object' } },
+  ],
+  'issue-tracker': [
+    { plugin: 'issue-tracker', name: 'issues_search', description: 'Search assigned issues.', enabled: true, published: false, reason: 'limit', inputSchema: { type: 'object' } },
+    { plugin: 'issue-tracker', name: 'issue_update', description: 'Update an issue.', enabled: true, published: false, reason: 'conflict', inputSchema: { type: 'object' } },
+  ],
+};
+const pluginRecipes = [
+  {
+    id: 'team-calendar', name: 'Team Calendar', description: 'Read and manage events in a shared calendar.', runtime: 'node',
+    notes: 'Requires an API key with calendar access.', homepage: 'https://example.test/calendar',
+    transport: { type: 'stdio', command: 'npx', args: ['-y', '@demo/calendar-mcp@1.4.2'] },
+    secrets: [{ key: 'CALENDAR_API_KEY', where: 'env', label: 'Calendar API key', required: true, help: 'Create a key with access to the calendars this plugin should use.' }],
+  },
+  {
+    id: 'issue-cloud', name: 'Issue Cloud', description: 'Connect to the hosted issue tracking service.', runtime: 'none',
+    notes: 'Uses the vendor-hosted MCP endpoint.', homepage: 'https://example.test/issues',
+    transport: { type: 'http', url: 'https://issues.example.test/mcp' },
+    secrets: [{ key: 'Authorization', where: 'header', label: 'Access token', required: true, prefix: 'Bearer ', help: 'Paste an access token for your account.' }],
+  },
+];
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -356,6 +397,64 @@ export async function request(path, options = {}) {
   await new Promise((resolve) => setTimeout(resolve, 40));
   const method = options.method || 'GET';
   const body = options.body ? JSON.parse(options.body) : {};
+
+  if (path === '/plugins/recipes') return clone(pluginRecipes);
+  if (path === '/plugins' && method === 'GET') return clone(plugins);
+  if (path === '/plugins' && method === 'POST') {
+    const baseId = String(body.name || 'plugin').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'plugin';
+    let id = baseId;
+    let suffix = 2;
+    while (plugins.some((plugin) => plugin.id === id)) id = `${baseId.slice(0, 36)}-${suffix++}`;
+    const transport = clone(body.transport || {});
+    const secretMap = transport.type === 'http' ? transport.headers : transport.env;
+    if (secretMap) for (const key of Object.keys(secretMap)) secretMap[key] = MASKED;
+    const created = {
+      id, name: String(body.name || id), enabled: true, trusted: false, transport,
+      recipe: body.recipe, createdAt: new Date().toISOString(),
+      status: { state: 'ready', toolCount: 2, publishedCount: 2, startedAt: new Date().toISOString(), stderrTail: [] },
+    };
+    plugins.unshift(created);
+    pluginTools[id] = ['info', 'search'].map((name) => ({ plugin: id, name, description: `Mock ${name} tool`, enabled: true, published: true, inputSchema: { type: 'object' } }));
+    return clone(created);
+  }
+  const pluginToolMatch = path.match(/^\/plugins\/([^/]+)\/tools\/([^/]+)$/);
+  if (pluginToolMatch && method === 'PATCH') {
+    const id = decodeURIComponent(pluginToolMatch[1]);
+    const name = decodeURIComponent(pluginToolMatch[2]);
+    const tool = (pluginTools[id] || []).find((item) => item.name === name);
+    if (!tool) fail('Plugin tool not found');
+    tool.enabled = Boolean(body.enabled);
+    return clone(tool);
+  }
+  const restartPluginMatch = path.match(/^\/plugins\/([^/]+)\/restart$/);
+  if (restartPluginMatch && method === 'POST') {
+    const plugin = plugins.find((item) => item.id === decodeURIComponent(restartPluginMatch[1]));
+    if (!plugin) fail('Plugin not found');
+    plugin.status = { ...plugin.status, state: plugin.enabled ? 'ready' : 'disabled', startedAt: new Date().toISOString(), error: undefined };
+    return clone(plugin);
+  }
+  const pluginMatch = path.match(/^\/plugins\/([^/?]+)$/);
+  if (pluginMatch) {
+    const id = decodeURIComponent(pluginMatch[1]);
+    const plugin = plugins.find((item) => item.id === id);
+    if (method === 'DELETE') {
+      if (!plugin) fail('Plugin not found');
+      plugins = plugins.filter((item) => item.id !== id);
+      delete pluginTools[id];
+      return null;
+    }
+    if (!plugin) fail('Plugin not found');
+    if (method === 'GET') return { ...clone(plugin), tools: clone(pluginTools[id] || []) };
+    if (method === 'PATCH') {
+      if (typeof body.enabled === 'boolean') {
+        plugin.enabled = body.enabled;
+        plugin.status.state = body.enabled ? 'starting' : 'disabled';
+      }
+      if (typeof body.trusted === 'boolean') plugin.trusted = body.trusted;
+      if (body.name) plugin.name = body.name;
+      return clone(plugin);
+    }
+  }
 
   if (path === '/requests' || path.startsWith('/requests?')) {
     const params = new URLSearchParams(path.slice(path.indexOf('?') + 1));

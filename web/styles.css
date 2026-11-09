@@ -400,6 +400,60 @@ textarea {
 .finish-warnings { display: grid; gap: 4px; margin: 12px 0 0; padding: 10px 10px 10px 27px; border-radius: 7px; background: var(--amber-bg); color: var(--amber); font-size: 11px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
+/* Plugins hub */
+.plugins-connect { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); align-items: center; gap: 22px; margin-bottom: 18px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.plugins-connect .eyebrow { margin: 0 0 4px; }
+.plugins-connect h2 { margin: 0; font-size: 16px; }
+.plugins-connect p:not(.eyebrow) { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+.plugins-url-row { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.plugins-url-row code { min-width: 0; flex: 1; padding: 9px 10px; overflow: hidden; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-2); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.plugins-list { display: grid; gap: 12px; }
+.plugin-card { min-width: 0; padding: 17px 19px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.plugin-card-top, .plugin-title, .plugin-actions, .plugin-summary-row { display: flex; align-items: center; }
+.plugin-card-top { justify-content: space-between; gap: 12px; }
+.plugin-title { min-width: 0; flex-wrap: wrap; gap: 8px; }
+.plugin-title h2 { min-width: 0; margin: 0; font-size: 15px; overflow-wrap: anywhere; }
+.plugin-actions { gap: 7px; }
+.plugin-transport { color: var(--muted); font-size: 10px; }
+.plugin-state { padding: 3px 8px; border-radius: 999px; font-size: 10px; font-weight: 750; }
+.state-ready { background: var(--green-bg); color: var(--green); }
+.state-starting { background: var(--amber-bg); color: var(--amber); }
+.state-error { background: var(--red-bg); color: var(--red); }
+.state-disabled { background: var(--surface-2); color: var(--muted); }
+.plugin-error { margin: 11px 0 0; padding: 8px 10px; border-radius: 7px; background: var(--red-bg); color: var(--red); font-size: 11px; overflow-wrap: anywhere; }
+.plugin-summary-row { flex-wrap: wrap; gap: 10px 20px; margin-top: 14px; color: var(--muted); font-size: 11px; }
+.plugin-summary-row strong { color: var(--text); }
+.switch-label { display: inline-flex; align-items: center; gap: 8px; color: var(--text); }
+.plugin-trust-warning { margin: 4px 0 0 auto; color: var(--amber); font-size: 10px; text-align: right; }
+.plugin-tools-details, .plugin-log { margin-top: 13px; border-top: 1px solid var(--border); }
+.plugin-tools-details summary, .plugin-log summary { padding: 11px 0 3px; color: var(--text); cursor: pointer; font-size: 11px; font-weight: 680; }
+.plugin-tools-details summary span, .plugin-log summary span { margin-left: 5px; color: var(--muted); font-weight: 500; }
+.plugin-tool-list { display: grid; margin: 6px 0 0; padding: 0; list-style: none; }
+.plugin-tool { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+.plugin-tool > div { min-width: 0; }
+.plugin-tool strong { font-size: 11px; overflow-wrap: anywhere; }
+.plugin-tool p { margin: 2px 0 0; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
+.plugin-unpublished { display: inline-block; margin-top: 3px; color: var(--amber); font-size: 10px; }
+.plugin-loading { margin: 9px 0; font-size: 11px; }
+.plugin-log pre { max-height: 180px; margin: 8px 0 0; padding: 10px; overflow: auto; border-radius: 7px; background: var(--surface-2); font-size: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.plugin-empty { padding: 20px; border: 1px dashed var(--border); border-radius: var(--radius); background: var(--surface); }
+.plugin-empty strong { font-size: 13px; }
+.plugin-empty p { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
+.plugin-dialog { width: min(620px, calc(100vw - 30px)); max-height: min(88vh, 760px); overflow: auto; }
+.plugin-dialog-panel > label, .plugin-dialog-panel form > label { margin: 12px 0; }
+.plugin-dialog-panel input, .plugin-dialog-panel textarea, .plugin-dialog-panel select { width: 100%; }
+.plugin-dialog-panel textarea { resize: vertical; }
+.plugin-dialog-panel [hidden] { display: none; }
+.recipe-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-top: 14px; }
+.recipe-card { display: grid; gap: 6px; min-width: 0; padding: 13px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); text-align: left; }
+.recipe-card:hover { border-color: var(--accent); background: var(--accent-soft); }
+.recipe-card strong { font-size: 12px; }
+.recipe-card span, .recipe-selected p { margin: 0; color: var(--muted); font-size: 11px; }
+.recipe-card small, .recipe-selected small, .field-help { color: var(--faint); font-size: 10px; }
+.recipe-selected { margin: 14px 0; }
+.recipe-selected h3 { margin: 8px 0 4px; font-size: 14px; }
+.link-button { padding: 0; border: 0; background: none; color: var(--accent); font-size: 11px; cursor: pointer; }
+
 .button {
   padding: 9px 13px;
   border: 1px solid var(--border);
@@ -2147,13 +2201,37 @@ textarea {
   .request-details > div {
     grid-template-columns: 94px minmax(0, 1fr);
   }
+
+  .plugins-connect {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
 }
 
 @media (max-width: 500px) {
   .request-card,
   .finish-card,
-  .plan-panel {
+  .plan-panel,
+  .plugin-card {
     padding: 14px;
+  }
+
+  .plugin-card-top {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .plugin-summary-row {
+    gap: 10px 14px;
+  }
+
+  .plugin-trust-warning {
+    margin-left: 0;
+    text-align: left;
+  }
+
+  .recipe-grid {
+    grid-template-columns: 1fr;
   }
 
   .request-card-heading,

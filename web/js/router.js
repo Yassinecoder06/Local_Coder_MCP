@@ -3,6 +3,7 @@ const pageNames = {
   skills: 'Skills',
   commands: 'Commands',
   tools: 'Tools',
+  plugins: 'Plugins',
   activity: 'Activity',
   requests: 'Requests',
   settings: 'Settings',
