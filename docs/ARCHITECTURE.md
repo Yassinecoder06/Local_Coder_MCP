@@ -80,3 +80,9 @@ If `MCP_TOKEN` is empty at startup, generate one and persist it in `DATA_DIR/tok
 
 ## Quality bar
 `npm run typecheck` and `npm test` green; no new runtime deps beyond package.json without saying why; Node built-ins (`node:test`) for tests.
+
+## Phase 1 additions (see docs/UPGRADE-PLAN.md)
+- `ToolContext.callTool(name, args)` / `callableTools()` — server-provided (agy1); used by `exec` (agy2). Inner calls are logged with `via: "exec"` in `ActivityEntry`.
+- New tool `exec` (risk exec, group system): run a short JS program in a `node:worker_threads` isolate that calls `await tools.<name>(args)` and emits `text()`/`image()`.
+- `run` gains `cmds[]` (≤ 20, one shell, labeled sections + per-item exit codes) and job `stdin`/`poll`.
+- `read` gains globs, directory listing (1 level), 256 KB/file and 512 KB/call caps.

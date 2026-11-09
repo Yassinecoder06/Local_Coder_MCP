@@ -35,6 +35,15 @@ export interface ToolContext {
   skills: SkillRegistry;
   commands: CommandRegistry;
   activity: ActivityLog;
+  /**
+   * Call another registered tool by name (used by `exec`). Provided by src/mcp/server.ts:
+   * same enabled/profile filtering, arg validation, error wrapping and activity logging
+   * (with via: "exec") as a direct call. Never exposes `exec` itself (no recursion).
+   * Undefined in contexts that are not an MCP session (e.g. some tests).
+   */
+  callTool?: (name: string, args: Record<string, unknown>) => Promise<ToolResult>;
+  /** Names callable through callTool (enabled, not `exec`). */
+  callableTools?: () => { name: string; description: string }[];
 }
 
 export interface ToolDefinition<S extends z.ZodRawShape = z.ZodRawShape> {

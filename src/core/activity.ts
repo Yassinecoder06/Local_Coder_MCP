@@ -16,6 +16,8 @@ export interface ActivityEntry {
   ok: boolean;
   summary: string;
   ms: number;
+  /** Set on calls made from inside `exec`: the `exec` call's own activity id is not known yet, so this is "exec". */
+  via?: "exec";
 }
 
 export interface ActivityLog {
