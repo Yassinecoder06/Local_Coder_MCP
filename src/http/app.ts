@@ -4,6 +4,7 @@
 import express, { type Express, type Request, type Response } from "express";
 import type { AppConfig } from "../config.js";
 import type { ActivityLog } from "../core/activity.js";
+import type { Board } from "../core/board.js";
 import type { CommandRegistry } from "../commands/registry.js";
 import type { SkillRegistry } from "../skills/registry.js";
 import { createAuthMiddleware } from "./auth-middleware.js";
@@ -16,6 +17,7 @@ export interface McpAppDependencies {
   skills: SkillRegistry;
   commands: CommandRegistry;
   sessionManager?: SessionManager;
+  board?: Board;
 }
 
 export function createMcpApp(deps: McpAppDependencies): { app: Express; sessionManager: SessionManager } {

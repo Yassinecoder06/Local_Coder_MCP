@@ -34,7 +34,9 @@ export const ESSENTIAL_TOOLS = new Set([
   "status",
   "todo",
   "resume",
-  "browser_check",
+  "ask_user",
+  "user_request_status",
+  "finish",
 ]);
 
 function summarizeArgs(args: unknown): string {

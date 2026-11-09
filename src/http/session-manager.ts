@@ -12,6 +12,7 @@ import {
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AppConfig } from "../config.js";
 import type { ActivityLog } from "../core/activity.js";
+import type { Board } from "../core/board.js";
 import type { CommandRegistry } from "../commands/registry.js";
 import type { SkillRegistry } from "../skills/registry.js";
 import { createWorkspace, resolveInitialWorkspace } from "../core/workspace.js";
@@ -40,6 +41,7 @@ export interface SessionManagerDependencies {
   activity: ActivityLog;
   skills: SkillRegistry;
   commands: CommandRegistry;
+  board?: Board;
 }
 
 function negotiateProtocolVersion(requested?: string): string {
@@ -139,6 +141,7 @@ export class SessionManager {
       skills: this.deps.skills,
       commands: this.deps.commands,
       activity: this.deps.activity,
+      board: this.deps.board,
     };
 
     const transport = new StreamableHTTPServerTransport({

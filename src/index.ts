@@ -11,6 +11,7 @@ import http from "node:http";
 import path from "node:path";
 import { loadConfig } from "./config.js";
 import { createActivityLog } from "./core/activity.js";
+import { createBoard } from "./core/board.js";
 import { initSettings, getSettings, updateSettings } from "./core/settings.js";
 import { createAdminApp } from "./admin/app.js";
 import { createMcpApp } from "./http/app.js";
@@ -45,6 +46,9 @@ async function main() {
   });
   initOAuthStore(config.dataDir);
 
+  // 3b. Create board for user requests, finish reports, and live plan events
+  const board = createBoard(config.dataDir);
+
   // 4. Initialize activity log
   const activityLog = createActivityLog(path.join(config.dataDir, "activity.jsonl"));
 
@@ -58,6 +62,7 @@ async function main() {
     activity: activityLog,
     skills: skillRegistry,
     commands: commandRegistry,
+    board,
   });
   sessionManager.startCleanup();
 
@@ -68,6 +73,7 @@ async function main() {
     skills: skillRegistry,
     commands: commandRegistry,
     sessionManager,
+    board,
   });
 
   // 8. Start HTTP listeners

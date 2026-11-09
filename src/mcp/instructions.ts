@@ -39,7 +39,9 @@ export async function buildInstructions(ctx: ToolContext): Promise<string> {
 - run run{verify:true} before claiming done;
 - for UI or web work, use browser_check and look at the screenshot;
 - on 'continue', call resume first;
-- never say it works without evidence from a check.
+- never say it works without evidence from a check;
+- If a step needs the person (sudo, interactive login, secrets, hardware), use ask_user with the exact command, then user_request_status; never use it to get around something you declined.
+- When done, call finish with a summary; it checks your evidence (verify/browser_check). Run checks first.
 `.trim());
 
   parts.push(`

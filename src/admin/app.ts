@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import type { AppConfig } from "../config.js";
 import type { ActivityLog } from "../core/activity.js";
+import type { Board, RequestStatus } from "../core/board.js";
 import type { CommandRegistry } from "../commands/registry.js";
 import type { SkillRegistry } from "../skills/registry.js";
 import { getSettings, updateSettings } from "../core/settings.js";
@@ -17,6 +18,7 @@ import { getLocalBaseUrl, resolvePublicUrl } from "../http/public-url.js";
 import { detectIntegrations } from "../core/integrations.js";
 import toolModules from "../tools/index.js";
 import { ESSENTIAL_TOOLS } from "../mcp/server.js";
+import { getAgentMemory } from "../tools/lib/memory.js";
 
 export interface ClientConnectInfo {
   id: string;
@@ -36,6 +38,7 @@ export interface AdminAppDependencies {
   skills: SkillRegistry;
   commands: CommandRegistry;
   sessionManager: SessionManager;
+  board?: Board;
 }
 
 function isValidHost(hostHeader?: string): boolean {
@@ -86,6 +89,7 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
     const settings = getSettings();
     const effectiveBase = publicUrl || localUrl;
     const integrations = await detectIntegrations();
+    const openRequests = deps.board ? (await deps.board.listRequests({ status: "open" })).length : 0;
 
     res.json({
       version: deps.config.version,
@@ -98,6 +102,7 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
       defaultWorkspace: deps.config.defaultWorkspace,
       lastWorkspace: settings.lastWorkspace,
       integrations,
+      openRequests,
       endpoints: {
         local: localUrl,
         public: publicUrl,
@@ -610,6 +615,110 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
     });
 
     req.on("close", () => {
+      unsubscribe();
+    });
+  });
+
+  // 9. Board API (requests, finishes, plan, stream)
+  app.get("/api/requests", async (req: Request, res: Response) => {
+    try {
+      if (!deps.board) {
+        res.json([]);
+        return;
+      }
+      const workspace = req.query.workspace ? String(req.query.workspace) : undefined;
+      const status = req.query.status ? (String(req.query.status) as RequestStatus) : undefined;
+      const requests = await deps.board.listRequests({ workspace, status });
+      res.json(requests);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post("/api/requests/:id", async (req: Request, res: Response) => {
+    try {
+      if (!deps.board) {
+        res.status(500).json({ error: "Board is not available" });
+        return;
+      }
+      const id = String(req.params.id);
+      const { status, note } = req.body || {};
+      if (status !== "done" && status !== "skipped") {
+        res.status(400).json({ error: "Invalid status: expected 'done' or 'skipped'" });
+        return;
+      }
+      const existing = await deps.board.getRequest(id);
+      if (!existing) {
+        res.status(404).json({ error: `Request not found: ${id}` });
+        return;
+      }
+      const updated = await deps.board.setRequestStatus(id, status, typeof note === "string" ? note : undefined);
+      res.json(updated);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("not found")) {
+        res.status(404).json({ error: msg });
+      } else {
+        res.status(400).json({ error: msg });
+      }
+    }
+  });
+
+  app.get("/api/finishes", async (req: Request, res: Response) => {
+    try {
+      if (!deps.board) {
+        res.json([]);
+        return;
+      }
+      const limit = req.query.limit ? Number(req.query.limit) : undefined;
+      const workspace = req.query.workspace ? String(req.query.workspace) : undefined;
+      const finishes = await deps.board.listFinishes({ workspace, limit });
+      res.json(finishes);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.get("/api/plan", async (req: Request, res: Response) => {
+    try {
+      const settings = getSettings();
+      const workspace =
+        (req.query.workspace ? String(req.query.workspace) : undefined) ||
+        settings.lastWorkspace ||
+        deps.config.defaultWorkspace;
+      const memory = await getAgentMemory(deps.config.dataDir, workspace);
+      res.json({
+        workspace,
+        todos: memory.todos,
+        updatedAt: memory.updatedAt,
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.get("/api/board/stream", (req: Request, res: Response) => {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+    res.write(": connected\n\n");
+
+    if (!deps.board) {
+      req.on("close", () => {});
+      return;
+    }
+
+    const unsubscribe = deps.board.subscribe((event) => {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    });
+
+    const heartbeat = setInterval(() => {
+      res.write(": heartbeat\n\n");
+    }, 15000);
+
+    req.on("close", () => {
+      clearInterval(heartbeat);
       unsubscribe();
     });
   });

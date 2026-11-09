@@ -112,6 +112,22 @@ describe("Tool-Call Budget and Instructions Guidelines", () => {
     );
   });
 
+  it("includes human-in-the-loop ask_user and finish instructions", async () => {
+    const instructions = await buildInstructions(mockCtx);
+    assert.ok(
+      instructions.includes(
+        "If a step needs the person (sudo, interactive login, secrets, hardware), use ask_user with the exact command, then user_request_status; never use it to get around something you declined."
+      ),
+      "Must include ask_user guidance"
+    );
+    assert.ok(
+      instructions.includes(
+        "When done, call finish with a summary; it checks your evidence (verify/browser_check). Run checks first."
+      ),
+      "Must include finish guidance"
+    );
+  });
+
   it("includes herdr prompt and pane safety rules when herdr is available", async () => {
     const origPath = process.env.PATH;
     const binDir = path.join(tmpDir, "mock-herdr-bin");
