@@ -6,6 +6,7 @@ import { createWorkspace, type Workspace } from "../src/core/workspace.js";
 import { createMemoryActivityLog, type ActivityLog } from "../src/core/activity.js";
 import { createSkillRegistry } from "../src/skills/index.js";
 import { createCommandRegistry } from "../src/commands/index.js";
+import { createBoard, type Board } from "../src/core/board.js";
 import type { ToolContext } from "../src/core/types.js";
 
 export interface TestEnvironment {
@@ -17,6 +18,7 @@ export interface TestEnvironment {
   config: AppConfig;
   workspace: Workspace;
   activity: ActivityLog;
+  board: Board;
   ctx: ToolContext;
   cleanup: () => Promise<void>;
 }
@@ -62,6 +64,7 @@ export async function createTestEnvironment(overrides?: Partial<AppConfig>): Pro
 
   const skills = createSkillRegistry(config, settings);
   const commands = createCommandRegistry(config);
+  const board = createBoard(dataDir);
 
   const ctx: ToolContext = {
     config,
@@ -69,6 +72,7 @@ export async function createTestEnvironment(overrides?: Partial<AppConfig>): Pro
     skills,
     commands,
     activity,
+    board,
   };
 
   const cleanup = async () => {
@@ -84,6 +88,7 @@ export async function createTestEnvironment(overrides?: Partial<AppConfig>): Pro
     config,
     workspace,
     activity,
+    board,
     ctx,
     cleanup,
   };

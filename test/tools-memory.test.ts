@@ -91,6 +91,9 @@ test("memory tools: todo and resume", async (t) => {
     assert.ok(res.data.recent_activity.length > 0);
     assert.ok(res.data.git);
     assert.ok(Array.isArray(res.data.running_jobs));
+    assert.ok(Array.isArray(res.data.open_requests));
+    assert.equal(res.data.open_requests.length, 0);
+    assert.equal(res.data.last_finish, null);
     assert.match(res.summary, /Active workspace:/);
   });
 });
