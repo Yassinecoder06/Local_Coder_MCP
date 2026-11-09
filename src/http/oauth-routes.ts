@@ -144,8 +144,8 @@ function renderAuthorizeHtml(params: {
 <body>
   <div class="card">
     <h1>Authorize Local Coder</h1>
-    <p>Allow this client application to access your local coding workspace tools via MCP.</p>
-    <div>
+    <p>Allow your AI client to access your local coding workspace tools via MCP.</p>
+    <div style="margin-bottom: 1.25rem;">
       <span class="client-badge">${escapeHtml(params.clientName || params.clientId)}</span>
     </div>
     ${params.error ? `<div class="error-msg">${escapeHtml(params.error)}</div>` : ""}

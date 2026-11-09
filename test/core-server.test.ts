@@ -465,7 +465,8 @@ describe("Core Server Architecture", () => {
       assert.equal(inferClient(undefined, { userAgent: "Google-Gemini/1.0" }), "gemini");
       assert.equal(inferClient(undefined, { userAgent: "curl/8.5.0" }), "unknown");
       assert.equal(inferClient(undefined, undefined), "unknown");
-      assert.equal(inferClient("Claude Desktop", undefined), "Claude Desktop");
+      assert.equal(inferClient("Claude Desktop", undefined), "claude");
+      assert.equal(inferClient("Zed", undefined), "Zed");
       // Never log tokens
       assert.equal(inferClient("Bearer secret-token-xyz", undefined), "unknown");
 
@@ -1020,6 +1021,273 @@ describe("Core Server Architecture", () => {
 
       // Restore port
       config.port = mcpPort;
+    });
+  });
+
+  describe("Client-Neutral Multi-Client Presentation & Claude DCR Flow", () => {
+    it("recognizes all standard MCP clients via inferClient and preserves unknown client names", () => {
+      // 1. Client inference table
+      const cases: Array<{ input?: string; headers?: Record<string, string>; expected: string }> = [
+        // Claude & Claude Code
+        { input: "claude-code", expected: "claude-code" },
+        { input: "Claude_Code/1.0.0", expected: "claude-code" },
+        { input: "claude-ai", expected: "claude" },
+        { input: "Claude Desktop", expected: "claude" },
+        { input: "anthropic-sdk", expected: "claude" },
+        // Gemini CLI & Gemini Web
+        { input: "gemini-cli", expected: "gemini-cli" },
+        { input: "gemini_cli/0.2.0", expected: "gemini-cli" },
+        { input: "gemini-web", expected: "gemini" },
+        { input: "google-assistant-gemini", expected: "gemini" },
+        // ChatGPT / OpenAI
+        { input: "chatgpt", expected: "chatgpt" },
+        { input: "openai-mcp-client", expected: "chatgpt" },
+        // Cursor
+        { input: "cursor/0.45.0", expected: "cursor" },
+        { input: "Cursor IDE", expected: "cursor" },
+        // VS Code
+        { input: "vscode", expected: "vscode" },
+        { input: "visual studio code", expected: "vscode" },
+        { input: "vs code", expected: "vscode" },
+        // Windsurf
+        { input: "windsurf", expected: "windsurf" },
+        { input: "codeium-windsurf", expected: "windsurf" },
+        // Codex
+        { input: "codex-cli", expected: "codex" },
+        { input: "codex_mcp_client", expected: "codex" },
+        // Le Chat / Mistral
+        { input: "le chat", expected: "le-chat" },
+        { input: "le-chat", expected: "le-chat" },
+        { input: "mistral-agent", expected: "le-chat" },
+        // Custom clients preserve sanitized names (never 'unknown' when a name exists)
+        { input: "Zed/0.143", expected: "Zed/0.143" },
+        { input: "Cline/3.1.2", expected: "Cline/3.1.2" },
+        { input: "Emacs-MCP\r\nPlugin", expected: "Emacs-MCP Plugin" },
+        // Token scrubbing
+        { input: "token 123456", expected: "unknown" },
+        { input: "Bearer secret-abc", expected: "unknown" },
+        { input: "", expected: "unknown" },
+        // Header fallbacks
+        { headers: { "user-agent": "Claude-Code/0.2.9 (darwin-arm64)" }, expected: "claude-code" },
+        { headers: { origin: "https://claude.ai" }, expected: "claude" },
+        { headers: { "user-agent": "Gemini-CLI/1.0" }, expected: "gemini-cli" },
+        { headers: { origin: "https://gemini.google.com" }, expected: "gemini" },
+        { headers: { "user-agent": "ChatGPT-User/2.0" }, expected: "chatgpt" },
+        { headers: { origin: "https://chatgpt.com" }, expected: "chatgpt" },
+        { headers: { "user-agent": "Codeium-Windsurf/1.0" }, expected: "windsurf" },
+        { headers: { "user-agent": "Codex-CLI/1.0" }, expected: "codex" },
+        { headers: { "user-agent": "Mistral-LeChat/1.0" }, expected: "le-chat" },
+        { headers: { "user-agent": "Mozilla/5.0 curl/8.5.0" }, expected: "unknown" },
+      ];
+
+      for (const c of cases) {
+        const actual = inferClient(c.input, c.headers);
+        assert.equal(actual, c.expected, `inferClient(${JSON.stringify(c.input)}, ${JSON.stringify(c.headers)}) should be ${c.expected}`);
+      }
+    });
+
+    it("GET /api/connect returns snippets for all 9 clients with valid configuration formats", async () => {
+      const currentToken = config.mcpToken;
+      const res = await fetch(`${adminBaseUrl}/api/connect`, {
+        headers: { Host: `localhost:${adminPort}` },
+      });
+      assert.equal(res.status, 200);
+      const data = await res.json();
+
+      // Compatibility fields
+      assert.ok(data.chatgpt?.url);
+      assert.ok(data.gemini?.url);
+      assert.equal(data.token, currentToken);
+
+      // Clients array
+      assert.ok(Array.isArray(data.clients));
+      assert.equal(data.clients.length, 9);
+
+      const clientMap = new Map<string, any>(data.clients.map((c: any) => [c.id, c]));
+      const expectedIds = [
+        "chatgpt",
+        "gemini",
+        "claude",
+        "claude-code",
+        "cursor",
+        "vscode",
+        "gemini-cli",
+        "codex-cli",
+        "generic",
+      ];
+      for (const id of expectedIds) {
+        assert.ok(clientMap.has(id), `Missing client with id: ${id}`);
+        const c = clientMap.get(id);
+        assert.ok(c.name);
+        assert.ok(["web", "desktop", "cli", "editor", "generic"].includes(c.kind));
+        assert.ok(["oauth", "bearer", "url-token"].includes(c.auth));
+        assert.ok(c.url.startsWith("http"));
+        assert.ok(Array.isArray(c.steps) && c.steps.length > 0);
+      }
+
+      // 1. claude-code: bash snippet with token and add command
+      const claudeCode = clientMap.get("claude-code");
+      assert.equal(claudeCode.kind, "cli");
+      assert.equal(claudeCode.auth, "bearer");
+      assert.equal(claudeCode.snippetLang, "bash");
+      assert.ok(claudeCode.snippet.includes("claude mcp add --transport http local-coder"));
+      assert.ok(claudeCode.snippet.includes(currentToken));
+      assert.ok(claudeCode.snippet.includes(mcpBaseUrl));
+
+      // 2. cursor: JSON snippet with headers Authorization Bearer
+      const cursor = clientMap.get("cursor");
+      assert.equal(cursor.kind, "editor");
+      assert.equal(cursor.auth, "bearer");
+      assert.equal(cursor.configPath, "~/.cursor/mcp.json");
+      assert.equal(cursor.snippetLang, "json");
+      const cursorParsed = JSON.parse(cursor.snippet);
+      assert.equal(cursorParsed.mcpServers["local-coder"].headers.Authorization, `Bearer ${currentToken}`);
+      assert.equal(cursorParsed.mcpServers["local-coder"].url, `${mcpBaseUrl}/mcp`);
+
+      // 3. vscode: JSON snippet with servers.local-coder
+      const vscode = clientMap.get("vscode");
+      assert.equal(vscode.kind, "editor");
+      assert.equal(vscode.auth, "bearer");
+      assert.equal(vscode.configPath, ".vscode/mcp.json");
+      assert.equal(vscode.snippetLang, "json");
+      const vscodeParsed = JSON.parse(vscode.snippet);
+      assert.equal(vscodeParsed.servers["local-coder"].headers.Authorization, `Bearer ${currentToken}`);
+      assert.equal(vscodeParsed.servers["local-coder"].url, `${mcpBaseUrl}/mcp`);
+
+      // 4. gemini-cli: JSON snippet with httpUrl
+      const geminiCli = clientMap.get("gemini-cli");
+      assert.equal(geminiCli.kind, "cli");
+      assert.equal(geminiCli.auth, "bearer");
+      assert.equal(geminiCli.configPath, "~/.gemini/settings.json");
+      assert.equal(geminiCli.snippetLang, "json");
+      const geminiCliParsed = JSON.parse(geminiCli.snippet);
+      assert.equal(geminiCliParsed.mcpServers["local-coder"].headers.Authorization, `Bearer ${currentToken}`);
+      assert.equal(geminiCliParsed.mcpServers["local-coder"].httpUrl, `${mcpBaseUrl}/mcp`);
+
+      // 5. codex-cli: TOML snippet
+      const codexCli = clientMap.get("codex-cli");
+      assert.equal(codexCli.kind, "cli");
+      assert.equal(codexCli.auth, "bearer");
+      assert.equal(codexCli.configPath, "~/.codex/config.toml");
+      assert.equal(codexCli.snippetLang, "toml");
+      assert.ok(codexCli.snippet.includes("[mcp_servers.local-coder]"));
+      assert.ok(codexCli.snippet.includes(`url = "${mcpBaseUrl}/mcp"`));
+      assert.ok(codexCli.snippet.includes(currentToken));
+
+      // 6. generic: curl / bearer snippet
+      const generic = clientMap.get("generic");
+      assert.equal(generic.kind, "generic");
+      assert.equal(generic.auth, "bearer");
+      assert.ok(generic.snippet.includes(currentToken));
+      assert.ok(generic.snippet.includes(`${mcpBaseUrl}/mcp`));
+    });
+
+    it("completes full OAuth 2.1 flow with Claude-style DCR and redirect_uri", async () => {
+      const claudeRedirectUri = "https://claude.ai/api/mcp/auth_callback";
+      const claudeClientName = "Claude Desktop Connector";
+
+      // 1. Dynamic Client Registration (POST /oauth/register)
+      const regRes = await fetch(`${mcpBaseUrl}/oauth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_name: claudeClientName,
+          redirect_uris: [claudeRedirectUri],
+          grant_types: ["authorization_code", "refresh_token"],
+          response_types: ["code"],
+          token_endpoint_auth_method: "none",
+        }),
+      });
+      assert.equal(regRes.status, 201);
+      const regData = await regRes.json();
+      assert.ok(regData.client_id);
+      assert.equal(regData.client_name, claudeClientName);
+      assert.deepEqual(regData.redirect_uris, [claudeRedirectUri]);
+
+      const clientId = regData.client_id;
+      const codeVerifier = crypto.randomBytes(32).toString("base64url");
+      const codeChallenge = crypto.createHash("sha256").update(codeVerifier).digest("base64url");
+      const state = "claude-state-roundtrip-999";
+
+      // 2. Authorize HTML GET - verifies client_name display and neutral wording
+      const authGetUrl = new URL(`${mcpBaseUrl}/oauth/authorize`);
+      authGetUrl.searchParams.set("client_id", clientId);
+      authGetUrl.searchParams.set("redirect_uri", claudeRedirectUri);
+      authGetUrl.searchParams.set("response_type", "code");
+      authGetUrl.searchParams.set("code_challenge", codeChallenge);
+      authGetUrl.searchParams.set("code_challenge_method", "S256");
+      authGetUrl.searchParams.set("state", state);
+
+      const htmlRes = await fetch(authGetUrl.toString());
+      assert.equal(htmlRes.status, 200);
+      const htmlText = await htmlRes.text();
+      assert.ok(htmlText.includes(claudeClientName), "Authorize page must display registering client_name");
+      assert.ok(htmlText.includes("Allow your AI client"), "Must use neutral phrasing");
+      assert.ok(!htmlText.toLowerCase().includes("chatgpt web and gemini web"));
+
+      // 3. Authorize POST with access key - redirects to Claude callback
+      const authForm = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: claudeRedirectUri,
+        code_challenge: codeChallenge,
+        code_challenge_method: "S256",
+        state,
+        access_key: config.mcpToken,
+      });
+
+      const authPostRes = await fetch(`${mcpBaseUrl}/oauth/authorize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: authForm.toString(),
+        redirect: "manual",
+      });
+      assert.equal(authPostRes.status, 302);
+      const location = authPostRes.headers.get("location");
+      assert.ok(location);
+      assert.ok(location.startsWith(claudeRedirectUri));
+
+      const parsedRedirect = new URL(location);
+      assert.equal(parsedRedirect.searchParams.get("state"), state);
+      const authCode = parsedRedirect.searchParams.get("code");
+      assert.ok(authCode, "Must receive auth code in redirect");
+
+      // 4. Token Exchange (POST /oauth/token)
+      const tokenRes = await fetch(`${mcpBaseUrl}/oauth/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          grant_type: "authorization_code",
+          code: authCode,
+          client_id: clientId,
+          redirect_uri: claudeRedirectUri,
+          code_verifier: codeVerifier,
+        }),
+      });
+      assert.equal(tokenRes.status, 200);
+      const tokenData = await tokenRes.json();
+      assert.ok(tokenData.access_token);
+      assert.equal(tokenData.token_type, "Bearer");
+      assert.ok(tokenData.expires_in);
+
+      // 5. MCP request using the issued OAuth access token
+      const mcpRes = await fetch(`${mcpBaseUrl}/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Authorization: `Bearer ${tokenData.access_token}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 42,
+          method: "tools/list",
+          params: {},
+        }),
+      });
+      assert.equal(mcpRes.status, 200);
+      const mcpData = await mcpRes.json();
+      assert.ok(Array.isArray(mcpData.result?.tools));
+      assert.ok(mcpData.result.tools.length > 0);
     });
   });
 });
