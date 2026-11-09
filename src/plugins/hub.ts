@@ -3,6 +3,7 @@
  * Connects to external MCP servers and manages their lifecycle, publication, and invocation.
  */
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -166,6 +167,46 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, message: string):
   }
 }
 
+
+/** Env passed through to stdio plugins on top of the SDK's minimal default env. */
+const PASSTHROUGH_ENV = ["npm_config_cache", "UV_CACHE_DIR", "UV_TOOL_DIR", "UV_PYTHON_INSTALL_DIR", "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "CHROMIUM_PATH", "TZ", "LANG", "NODE_EXTRA_CA_CERTS"];
+
+/**
+ * Stdio plugins run npx/uvx, which need writable caches and HOME. In Docker with the host-tools
+ * override HOME is the host home (not writable), so fall back to DATA_DIR/cache.
+ */
+export function pluginBaseEnv(dataDir: string, env: NodeJS.ProcessEnv = process.env, canWrite: (dir: string) => boolean = writable): Record<string, string> {
+  const out: Record<string, string> = { ...getDefaultEnvironment() };
+  for (const k of PASSTHROUGH_ENV) if (env[k]) out[k] = env[k] as string;
+  const cache = path.join(dataDir, "cache");
+  if (!out.HOME || !canWrite(out.HOME)) out.HOME = path.join(cache, "home");
+  if (!out.XDG_CACHE_HOME || !canWrite(out.XDG_CACHE_HOME)) out.XDG_CACHE_HOME = path.join(cache, "xdg");
+  if (!out.XDG_CONFIG_HOME || !canWrite(out.XDG_CONFIG_HOME)) out.XDG_CONFIG_HOME = path.join(out.HOME, ".config");
+  out.npm_config_cache ??= path.join(cache, "npm");
+  out.UV_CACHE_DIR ??= path.join(cache, "uv");
+  out.UV_TOOL_DIR ??= path.join(cache, "uv-tools");
+  out.UV_PYTHON_INSTALL_DIR ??= path.join(cache, "uv-python");
+  for (const k of ["HOME", "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "npm_config_cache", "UV_CACHE_DIR", "UV_TOOL_DIR", "UV_PYTHON_INSTALL_DIR"]) {
+    try {
+      fsSync.mkdirSync(out[k], { recursive: true });
+    } catch {
+      /* reported by the plugin itself if it matters */
+    }
+  }
+  return out;
+}
+
+function writable(dir: string): boolean {
+  try {
+    fsSync.accessSync(dir, fsSync.constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+let pluginDataDir = path.resolve("data");
+
 class PluginInstance {
   public status: PluginStatus = {
     state: "disabled",
@@ -231,7 +272,7 @@ class PluginInstance {
 
       if (this.config.transport.type === "stdio") {
         const stdioEnv = {
-          ...getDefaultEnvironment(),
+          ...pluginBaseEnv(pluginDataDir),
           ...(this.config.transport.env ?? {}),
         };
 
@@ -388,6 +429,7 @@ class PluginInstance {
 }
 
 export function createPluginHub(config: AppConfig): PluginHub {
+  pluginDataDir = config.dataDir;
   const configFile = path.join(config.dataDir, "plugins.json");
   const instances = new Map<string, PluginInstance>();
   const listeners = new Set<() => void>();

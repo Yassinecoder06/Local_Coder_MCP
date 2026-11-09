@@ -360,3 +360,21 @@ describe("Plugins Hub and /mcp/plugins Endpoint", () => {
     assert.ok(connectBody.plugins?.url?.includes("/mcp/plugins/test-plugin-token"));
   });
 });
+
+test("pluginBaseEnv falls back to DATA_DIR/cache when HOME is not writable", async () => {
+  const os = await import("node:os");
+  const fsp = await import("node:fs/promises");
+  const pth = await import("node:path");
+  const { pluginBaseEnv } = await import("../src/plugins/hub.js");
+  const dir = await fsp.mkdtemp(pth.join(os.tmpdir(), "penv-"));
+  try {
+    const env = pluginBaseEnv(dir, { HOME: "/root-owned", PATH: "/usr/bin", CHROMIUM_PATH: "/usr/local/bin/chromium" }, (d) => d.startsWith(dir));
+    assert.equal(env.HOME, pth.join(dir, "cache", "home"));
+    assert.equal(env.npm_config_cache, pth.join(dir, "cache", "npm"));
+    assert.equal(env.UV_CACHE_DIR, pth.join(dir, "cache", "uv"));
+    assert.equal(env.CHROMIUM_PATH, "/usr/local/bin/chromium");
+    await fsp.access(pth.join(dir, "cache", "npm"));
+  } finally {
+    await fsp.rm(dir, { recursive: true, force: true });
+  }
+});
