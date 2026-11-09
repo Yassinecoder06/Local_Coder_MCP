@@ -33,6 +33,7 @@ printf 'Workspace roots E2E fixture\n' >"$workspace_root/workspace-root-e2e-mark
 export PORT=18787 ADMIN_PORT=18788 DATA_VOLUME="$temp_dir/data"
 # Create it as the host user; Docker would create a missing bind source as root.
 mkdir -p "$DATA_VOLUME"
+cp test/fixtures/schema-tools-mcp.mjs "$DATA_VOLUME/schema-tools-mcp.mjs"
 cat >"$DATA_VOLUME/plugin-echo.mjs" <<'EOF'
 import { createRequire } from "node:module";
 
@@ -215,6 +216,60 @@ curl --fail --silent --show-error -X PATCH -H 'Content-Type: application/json' \
 plugin_tools=$(json_response "$(plugin_rpc '{"jsonrpc":"2.0","id":4,"method":"tools/list"}')")
 echo "$plugin_tools" | jq -e '[.result.tools[].name] | index("echo") == null' >/dev/null
 echo "Disabled plugin tool is unpublished: ok"
+
+# Exercise schema normalisation and the main-connector plugin bridge.
+schema_plugin_input=$(jq -cn '{id:"e2e-schema",name:"E2E Schema",enabled:true,trusted:false,transport:{type:"stdio",command:"node",args:["/data/schema-tools-mcp.mjs"],cwd:"/data"}}')
+curl --fail --silent --show-error -X POST -H 'Content-Type: application/json' \
+  -d "$schema_plugin_input" "$admin/api/plugins" \
+  | jq -e '.id == "e2e-schema"' >/dev/null
+schema_plugin_summary=
+for attempt in $(seq 1 65); do
+  schema_plugin_summary=$(curl --silent --show-error "$admin/api/plugins" || true)
+  if echo "$schema_plugin_summary" | jq -e 'any(.[]; .id == "e2e-schema" and .status.state == "ready")' >/dev/null 2>&1; then break; fi
+  sleep 1
+done
+echo "$schema_plugin_summary" | jq -e 'any(.[]; .id == "e2e-schema" and .status.state == "ready" and .status.toolCount == 2)' >/dev/null
+schema_plugin_detail=$(curl --fail --silent --show-error "$admin/api/plugins/e2e-schema")
+echo "$schema_plugin_detail" | jq -e '
+  any(.tools[]; .name == "read_probe" and .execAllowed == true and (.adjustments | type == "array" and length > 0))
+  and any(.tools[]; .name == "write_probe" and .execAllowed == false)
+' >/dev/null
+echo "Admin schema adjustments and execAllowed: ok"
+
+schema_plugin_tools=$(json_response "$(plugin_rpc '{"jsonrpc":"2.0","id":5,"method":"tools/list"}')")
+echo "$schema_plugin_tools" | jq -e '
+  ([.result.tools[].inputSchema] | tostring | (contains("exclusiveMinimum") or contains("$ref") or contains("$schema"))) | not
+' >/dev/null
+echo "Plugin endpoint publishes normalized schemas: ok"
+
+main_plugin_tools=$(call_tool 11 plugin_tools '{}')
+echo "$main_plugin_tools" | jq -e '(.result | tostring) | contains("e2e-schema") and contains("read_probe") and contains("write_probe")' >/dev/null
+echo "Main connector plugin_tools lists the plugin: ok"
+
+plugin_exec() {
+  local id="$1" code="$2" arguments
+  arguments=$(jq -cn --arg code "$code" '{code:$code}')
+  call_tool "$id" exec "$arguments"
+}
+read_exec=$(plugin_exec 12 'const result = await plugins["e2e-schema"].read_probe({ amount: 4 }); text(result.summary);')
+echo "$read_exec" | jq -e '(.result | tostring) | contains("read:4")' >/dev/null
+echo "Main connector exec can call the read-only plugin tool: ok"
+
+write_exec=$(plugin_exec 13 'const result = await plugins["e2e-schema"].write_probe({ message: "before trust" }); text(String(result.ok));')
+echo "$write_exec" | jq -e '[.result | .. | strings] | any(. == "false")' >/dev/null
+echo "Main connector refuses the non-read-only plugin tool: ok"
+
+curl --fail --silent --show-error -X PATCH -H 'Content-Type: application/json' \
+  -d '{"trusted":true}' "$admin/api/plugins/e2e-schema" | jq -e '.trusted == true' >/dev/null
+trusted_write_exec=$(plugin_exec 14 'const result = await plugins["e2e-schema"].write_probe({ message: "after trust" }); text(result.summary);')
+echo "$trusted_write_exec" | jq -e '(.result | tostring) | contains("write:after trust")' >/dev/null
+echo "Trusted plugin tools are callable from the main connector: ok"
+
+preview_payload=$(jq -cn --arg text '{"mcpServers":{"preview-plugin":{"command":"npx","args":["-y","preview-mcp@1.0.0"]}}}' '{text:$text}')
+curl --fail --silent --show-error -X POST -H 'Content-Type: application/json' \
+  -d "$preview_payload" "$admin/api/plugins/import/preview" \
+  | jq -e '.plugins | length == 1' >/dev/null
+echo "Plugin config import preview: ok"
 
 # Verify editable workspace roots against the admin contract on a mounted path.
 workspace_payload=$(jq -cn --arg root "$workspace_root" '{roots:[$root],defaultWorkspace:$root}')

@@ -74,6 +74,7 @@ Static UI served from `web/` at `/`. No auth (bound to host loopback), but rejec
 | `GET /api/activity/stream` | SSE, `data: ActivityEntry` per event |
 | `GET /api/plugins` | `PluginSummary[]` |
 | `GET /api/plugins/recipes` | `PluginRecipe[]` |
+| `POST /api/plugins/import/preview` | body `{ text }` → `{ plugins, warnings }`; parses only and never starts/saves a plugin |
 | `POST /api/plugins` | body `PluginInput` → `PluginSummary` |
 | `GET /api/plugins/:id` | `PluginDetail` |
 | `PATCH /api/plugins/:id` | body `Partial<PluginInput> & { enabled? }` → `PluginSummary` |
@@ -112,6 +113,14 @@ Contract: `src/core/plugins.ts` (orchestrator). External MCP servers are republi
   `GET /api/plugins` → `PluginSummary[]` · `GET /api/plugins/recipes` → `PluginRecipe[]` · `POST /api/plugins` body `PluginInput` → `PluginSummary` · `GET /api/plugins/:id` → `PluginDetail` · `PATCH /api/plugins/:id` body `Partial<PluginInput> & {enabled?}` · `DELETE /api/plugins/:id` → 204 · `POST /api/plugins/:id/restart` → `PluginSummary` · `PATCH /api/plugins/:id/tools/:tool` body `{enabled}` → `PluginTool`. `/api/status.endpoints` adds `pluginsUrlWithToken`; `/api/connect` adds `plugins: { url }`.
 - Recipes (agy2): `plugins/recipes.json` (pinned versions) loaded/validated by `src/plugins/recipes.ts` (`loadRecipes(): Promise<PluginRecipe[]>`, `recipeToInput(recipe, secrets: Record<string,string>): PluginInput`). Built-in dir `BUILTIN_PLUGINS_DIR` default `./plugins` (`/app/plugins` in Docker).
 - UI (codex1): Plugins page. Docker/docs/e2e (codex2): `uv` in the image, npm/uv caches under `/data/cache`, README section.
+
+## Plugins through the main connector
+
+`ToolContext.plugins` implements `PluginBridge` for ready plugins and enabled tools. The read-only `plugin_tools` core tool lists the available bridge tools. Code mode exposes them as `plugins["<plugin-id>"].<tool>(args)`, so clients can call a plugin through their existing `/mcp` connector without adding `/mcp/plugins` as a second connection. A bridged tool is callable only when it is enabled, its plugin is ready, and either the plugin is trusted or the upstream annotation has `readOnlyHint: true`; plugin trust does not change the annotations published on the separate endpoint.
+
+Both endpoint publication and the main connector use normalized JSON Schemas. Normalization drops unsupported schema keywords (including `$schema`, `$id`, `$comment`, `examples`, conditionals, and `not`), inlines local `$ref` definitions, converts numeric `exclusiveMinimum`/`exclusiveMaximum` to `minimum`/`maximum` plus an explanatory description, simplifies nullable unions, merges object `allOf`, and removes required names without properties. The `PluginTool.adjustments` array records each change and is visible from `GET /api/plugins/:id`.
+
+`POST /api/plugins/import/preview` accepts `{ text }` and returns `{ plugins, warnings }` without starting a server or saving configuration. It recognizes pasted `mcpServers`/`servers` JSON, a single server object, a shell command line, or an MCP URL. Missing or placeholder credentials are reported as `needsSecrets` for the review step.
 
 ## Editable workspace roots
 Roots are no longer env-only. Effective roots = `settings.workspaceRoots` if set and non-empty, else `WORKSPACE_ROOTS`/`PROJECTS_DIR` from env. Effective default = `settings.defaultWorkspace` (must be inside a root) else env default.
