@@ -3,6 +3,7 @@
  */
 import type { NormalizeToolSchema } from "../core/plugins.js";
 
+const SILENT_DROP_KEYS = new Set(["$schema", "$id", "$comment", "examples"]);
 const DROP_KEYS = new Set([
   "$schema",
   "$id",
@@ -177,7 +178,8 @@ export const normalizeToolSchema: NormalizeToolSchema = (input: unknown) => {
     for (const key of Object.keys(node)) {
       if (DROP_KEYS.has(key)) {
         delete node[key];
-        adjustments.push(`${pathPrefix}: dropped ${key}`);
+        // Metadata-only keys change nothing a client can see; do not flag the tool as adjusted.
+        if (!SILENT_DROP_KEYS.has(key)) adjustments.push(`${pathPrefix}: dropped ${key}`);
       }
     }
 

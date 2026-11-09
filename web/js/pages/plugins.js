@@ -41,7 +41,7 @@ export async function renderPlugins(root, status) {
           <button type="button" class="tab" data-plugin-tab="custom" role="tab" aria-selected="false">Custom</button>
         </div>
         <div id="paste-panel" class="plugin-dialog-panel">
-          <form id="paste-form"><label>Paste an MCP config, a command like <code>npx -y @playwright/mcp@latest</code>, or a URL
+          <form id="paste-form"><label><span>Paste an MCP config, a command like <code>npx -y @playwright/mcp@latest</code>, or a URL</span>
             <textarea id="plugin-import-text" class="plugin-paste-text" rows="6" spellcheck="false" placeholder="Paste a Claude, Cursor, or VS Code MCP config…"></textarea></label>
             <div class="paste-actions"><button class="button button-primary" type="submit" data-submit-plugin="preview-import">Preview</button></div>
             <p id="plugin-import-error" class="plugin-inline-error" role="alert" hidden></p>

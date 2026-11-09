@@ -48,9 +48,10 @@ describe("Plugin Schema Normalisation (normalizeToolSchema)", () => {
     assert.equal(payloadProp.examples, undefined);
     assert.equal(payloadProp.$comment, undefined);
 
-    assert.ok(adjustments.some((a) => a.includes("dropped $schema")));
-    assert.ok(adjustments.some((a) => a.includes("dropped $id")));
-    assert.ok(adjustments.some((a) => a.includes("dropped examples")));
+    assert.ok(!adjustments.some((a) => a.includes("dropped $schema")), "metadata drops are silent");
+    assert.ok(adjustments.some((a) => a.includes("dropped not")));
+    assert.ok(!adjustments.some((a) => a.includes("dropped $id")));
+    assert.ok(!adjustments.some((a) => a.includes("dropped examples")));
     assert.ok(adjustments.some((a) => a.includes("dropped patternProperties")));
   });
 
