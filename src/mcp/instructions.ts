@@ -55,6 +55,11 @@ export async function buildInstructions(ctx: ToolContext): Promise<string> {
 - For browser/UI verification always use \`browser_check\` (screenshot, console errors); never launch chromium/chrome/playwright yourself via run.
 `.trim());
 
+  parts.push(`
+## Plugins
+Plugins are reachable here via \`plugin_tools\` then \`exec\` with \`plugins.<id>.<tool>()\`; blocked tools need the person to mark the plugin Trusted.
+`.trim());
+
   // Project Guidelines: AGENTS.md or CLAUDE.md (first 8 KB)
   const activeRoot = ctx.workspace.active();
   const guidelineCandidates = ["AGENTS.md", "CLAUDE.md", ".claude/CLAUDE.md", ".agents/AGENTS.md"];
