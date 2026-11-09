@@ -4,6 +4,14 @@ import { ok, fail } from "../core/result.js";
 import { jobManager, type RunResult } from "./lib/jobs.js";
 import { detectChecks, parseCheckErrors, type CheckResult } from "./lib/verify.js";
 
+export const BROWSER_CHECK_TIP =
+  "Tip: use browser_check for headless browser checks (screenshot + console); raw Chromium may crash in the container.";
+
+export const DIRECT_BROWSER_RE =
+  /\b(chromium|chromium-browser|google-chrome|playwright|puppeteer)\b/i;
+
+const CHROMIUM_MENTION_RE = /\b(chromium|chrome)\b/i;
+
 export const runTool = defineTool({
   name: "run",
   title: "Run Shell Command",
@@ -134,13 +142,27 @@ export const runTool = defineTool({
       const syncMs = ctx.config.shellSyncMs;
       const timeoutMs = args.timeout_ms ?? ctx.config.shellTimeoutMs;
 
+      const isDirectBrowser = args.command ? DIRECT_BROWSER_RE.test(args.command) : false;
+
       const result = await jobManager.startJob(args.command, cwd, syncMs, timeoutMs);
 
       if (!result.running) {
         const isOk = result.exit_code === 0;
-        const summary = isOk
+        let summary = isOk
           ? `Command completed successfully (exit code 0)`
           : `Command exited with code ${result.exit_code}`;
+
+        if (isDirectBrowser) {
+          const mentionsChromium =
+            CHROMIUM_MENTION_RE.test(args.command) ||
+            CHROMIUM_MENTION_RE.test(result.output ?? "");
+          if (!isOk && mentionsChromium) {
+            summary = `WARNING: Direct Chromium execution failed (exit code ${result.exit_code}). ${BROWSER_CHECK_TIP}`;
+          } else {
+            summary = `${summary}. ${BROWSER_CHECK_TIP}`;
+          }
+        }
+
         return ok("run", summary, {
           command: args.command,
           cwd: ctx.workspace.display(cwd),
@@ -149,7 +171,12 @@ export const runTool = defineTool({
         });
       }
 
-      return ok("run", `Command is running in background (job_id: ${result.job_id})`, {
+      let runningSummary = `Command is running in background (job_id: ${result.job_id})`;
+      if (isDirectBrowser) {
+        runningSummary = `${runningSummary}. ${BROWSER_CHECK_TIP}`;
+      }
+
+      return ok("run", runningSummary, {
         job_id: result.job_id,
         running: true,
         pid: result.pid,
