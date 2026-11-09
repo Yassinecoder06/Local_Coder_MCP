@@ -86,3 +86,9 @@ If `MCP_TOKEN` is empty at startup, generate one and persist it in `DATA_DIR/tok
 - New tool `exec` (risk exec, group system): run a short JS program in a `node:worker_threads` isolate that calls `await tools.<name>(args)` and emits `text()`/`image()`.
 - `run` gains `cmds[]` (≤ 20, one shell, labeled sections + per-item exit codes) and job `stdin`/`poll`.
 - `read` gains globs, directory listing (1 level), 256 KB/file and 512 KB/call caps.
+
+## Phase 2 additions — human in the loop + proven finish
+Shared store `src/core/board.ts` (orchestrator): `createBoard(DATA_DIR)` → `Board` (requests, finish reports, plan events, `subscribe`). One instance per process, created in `src/index.ts`, passed to the admin app and set as `ToolContext.board` for every session.
+- Tools (agy2): `ask_user` (risk read — it runs nothing), `user_request_status` (read; per request: status, note, and for each expected file exists/size/mtime, never the content), `finish` (read; collects evidence: last `run verify:true` and last `browser_check` from activity for this workspace, git diff stats, open requests → `verified` + `warnings`). `todo` calls `ctx.board?.emitPlan(...)` after each change. `resume` lists open requests and the last finish.
+- Admin API (agy1): `GET /api/requests?status=&workspace=` → `UserRequest[]`; `POST /api/requests/:id` body `{ status: "done"|"skipped", note? }` → `UserRequest`; `GET /api/finishes?limit=` → `FinishReport[]`; `GET /api/plan?workspace=` → `{ workspace, todos, updatedAt }` (default active/last workspace); `GET /api/board/stream` SSE, `data: BoardEvent`. `/api/status` adds `openRequests`.
+- UI (codex1): open requests as cards (command in full, Copy, Mark done, Skip, note), a live Plan panel, Finish cards with evidence + verified/unverified badge, nav badge with open request count.

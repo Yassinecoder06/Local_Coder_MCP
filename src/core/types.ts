@@ -2,6 +2,7 @@
  * SHARED CONTRACT — owned by the orchestrator. Do not change signatures without
  * coordinating; every tool module, the MCP server and the admin API depend on it.
  */
+import type { Board } from "./board.js";
 import type { z } from "zod";
 import type { AppConfig } from "../config.js";
 import type { SkillRegistry } from "../skills/registry.js";
@@ -35,6 +36,8 @@ export interface ToolContext {
   skills: SkillRegistry;
   commands: CommandRegistry;
   activity: ActivityLog;
+  /** Requests to the person, finish reports and plan events (src/core/board.ts). Wired per session by src/http/session-manager.ts. */
+  board?: Board;
   /**
    * Call another registered tool by name (used by `exec`). Provided by src/mcp/server.ts:
    * same enabled/profile filtering, arg validation, error wrapping and activity logging
