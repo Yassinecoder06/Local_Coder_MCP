@@ -23,7 +23,7 @@ export const commandsListTool = defineTool({
 export const commandRunTool = defineTool({
   name: "command_run",
   title: "Run Command",
-  description: "Render a task recipe command with arguments into actionable instructions the model must follow. Use to execute standard workflows.",
+  description: "Render a task recipe command with arguments into actionable instructions the AI client must follow. Use to execute standard workflows.",
   group: "commands",
   risk: "read",
   input: {
