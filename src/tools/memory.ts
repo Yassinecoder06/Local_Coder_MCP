@@ -83,6 +83,7 @@ export const todoTool = defineTool({
         }));
         memory.todos = todos;
         await saveAgentMemory(ctx.config.dataDir, workspaceRoot, memory);
+        ctx.board?.emitPlan(workspaceRoot, todos);
         return ok("todo", `Set ${todos.length} todo item(s)`, { todos });
       }
 
@@ -103,6 +104,7 @@ export const todoTool = defineTool({
 
         target.status = args.status;
         await saveAgentMemory(ctx.config.dataDir, workspaceRoot, memory);
+        ctx.board?.emitPlan(workspaceRoot, memory.todos);
         return ok("todo", `Updated todo "${target.text}" status to ${args.status}`, {
           updated_item: target,
           todos: memory.todos,
@@ -157,8 +159,31 @@ export const resumeTool = defineTool({
       // 4. Running jobs
       const jobs = jobManager.listJobs().filter((j) => j.running);
 
+      // 5. Open user requests and last finish (Phase 2 board)
+      let openRequests: { id: string; purpose: string; command: string }[] = [];
+      let lastFinish: { summary: string; verified: boolean } | null = null;
+
+      if (ctx.board) {
+        const open = await ctx.board.listRequests({ workspace: workspaceRoot, status: "open" });
+        openRequests = open.map((r) => ({
+          id: r.id,
+          purpose: r.purpose,
+          command: r.command,
+        }));
+
+        const finishes = await ctx.board.listFinishes({ workspace: workspaceRoot, limit: 1 });
+        if (finishes.length > 0) {
+          lastFinish = {
+            summary: finishes[0].summary,
+            verified: finishes[0].verified,
+          };
+        }
+      }
+
       const pending = memory.todos.filter((t) => t.status !== "done").length;
-      const summary = `Active workspace: ${ctx.workspace.display(workspaceRoot)}. ${memory.todos.length} todo(s) (${pending} remaining), git branch: ${git.branch ?? "none"}, ${jobs.length} running job(s).`;
+      const reqPart = openRequests.length > 0 ? `, ${openRequests.length} open user request(s)` : "";
+      const finishPart = lastFinish ? `, last finish: ${lastFinish.verified ? "verified" : "unverified"}` : "";
+      const summary = `Active workspace: ${ctx.workspace.display(workspaceRoot)}. ${memory.todos.length} todo(s) (${pending} remaining), git branch: ${git.branch ?? "none"}, ${jobs.length} running job(s)${reqPart}${finishPart}.`;
 
       return ok("resume", summary, {
         workspace: ctx.workspace.display(workspaceRoot),
@@ -167,6 +192,8 @@ export const resumeTool = defineTool({
         recent_activity: recentActivity,
         git,
         running_jobs: jobs,
+        open_requests: openRequests,
+        last_finish: lastFinish,
       });
     } catch (err) {
       return fail("resume", err);

@@ -10,6 +10,7 @@ import commandsTools from "./commands.js";
 import systemTools from "./system.js";
 import browserTools from "./browser.js";
 import memoryTools from "./memory.js";
+import humanTools from "./human.js";
 import execTools from "./exec.js";
 
 export const ESSENTIAL_TOOLS = new Set<string>([
@@ -35,6 +36,9 @@ export const ESSENTIAL_TOOLS = new Set<string>([
   "resume",
   "browser_check",
   "exec",
+  "ask_user",
+  "user_request_status",
+  "finish",
 ]);
 
 const modules: ToolModule[] = [
@@ -48,6 +52,7 @@ const modules: ToolModule[] = [
   systemTools,
   memoryTools,
   browserTools,
+  humanTools,
   execTools,
 ];
 
