@@ -1353,7 +1353,8 @@ textarea {
 }
 
 .trust-dialog,
-.confirm-dialog {
+.confirm-dialog,
+.folder-picker {
   position: fixed;
   top: 50dvh;
   left: 50vw;
@@ -1969,6 +1970,7 @@ textarea {
 .workspace-root-note code { color: var(--text); }
 .workspace-error { margin: 10px 0 0; padding: 9px 10px; border-radius: 7px; background: var(--red-bg); color: var(--red); font-size: 11px; overflow-wrap: anywhere; }
 .folder-picker { width: min(540px, calc(100vw - 28px)); max-height: min(84vh, 640px); overflow: auto; }
+.folder-picker .folder-picker-list { max-height: min(52vh, 420px); overflow: auto; }
 .folder-picker-intro { margin: 6px 0 10px; color: var(--muted); font-size: 11px; }
 .folder-area-list { display: grid; gap: 7px; }
 .folder-area { display: flex; min-width: 0; align-items: center; gap: 9px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); text-align: left; }

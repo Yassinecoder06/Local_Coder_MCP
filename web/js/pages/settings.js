@@ -158,6 +158,12 @@ async function openFolderPicker() {
   view.querySelector('#folder-picker-error').hidden = true;
   dialog.showModal();
   drawPickerRoots();
+  // One mount folder: skip the "choose an area" step and start browsing it.
+  const areas = mountDirs.length ? mountDirs : workspaceRoots;
+  if (areas.length === 1) {
+    pickerBasePath = areas[0];
+    await loadPickerDirectory(pickerBasePath);
+  }
 }
 
 function closeFolderPicker() {
