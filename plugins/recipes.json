@@ -1,0 +1,81 @@
+[
+  {
+    "id": "playwright",
+    "name": "Playwright MCP",
+    "description": "Headless browser automation via @playwright/mcp using container Chromium",
+    "homepage": "https://github.com/microsoft/playwright-mcp",
+    "runtime": "node",
+    "transport": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@0.0.85",
+        "--headless",
+        "--no-sandbox",
+        "--executable-path",
+        "/usr/local/bin/chromium"
+      ]
+    },
+    "secrets": [],
+    "notes": "Uses container Chromium at /usr/local/bin/chromium with sandbox disabled for Docker."
+  },
+  {
+    "id": "fetch",
+    "name": "Fetch MCP",
+    "description": "Web content fetching and conversion to markdown via mcp-server-fetch",
+    "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/fetch",
+    "runtime": "uv",
+    "transport": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "mcp-server-fetch@2026.11.4"
+      ]
+    },
+    "secrets": [],
+    "notes": "Runs mcp-server-fetch using uvx (runtime uv)."
+  },
+  {
+    "id": "memory",
+    "name": "Memory MCP",
+    "description": "Persistent graph memory and knowledge graph storage via @modelcontextprotocol/server-memory",
+    "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/memory",
+    "runtime": "node",
+    "transport": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory@2.1.0"
+      ],
+      "env": {
+        "MEMORY_FILE_PATH": "/data/plugins/memory.json"
+      }
+    },
+    "secrets": [],
+    "notes": "Stores knowledge graph in /data/plugins/memory.json."
+  },
+  {
+    "id": "github",
+    "name": "GitHub MCP",
+    "description": "GitHub official remote MCP server for repository, issue, and code operations",
+    "homepage": "https://api.githubcopilot.com/mcp/",
+    "runtime": "none",
+    "transport": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/"
+    },
+    "secrets": [
+      {
+        "key": "Authorization",
+        "where": "header",
+        "label": "GitHub Personal Access Token",
+        "required": true,
+        "prefix": "Bearer ",
+        "help": "A GitHub Personal Access Token (classic or fine-grained) with repository access"
+      }
+    ],
+    "notes": "Requires a GitHub Personal Access Token (PAT). Sent in the Authorization header with Bearer prefix."
+  }
+]
