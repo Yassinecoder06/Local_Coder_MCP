@@ -101,6 +101,10 @@ After edits, inspect diagnostics and run the project's checks so the model can r
 
 Use `run` with `cmds` to execute up to 20 related shell commands in one Bash session; `cd` and environment changes carry over, and each command reports its exit code. For interactive background commands, use `job` with `stdin` and `poll`. Read related files together in one `read` call using `paths` instead of making one call per file. The planned `exec` tool will orchestrate several tools from one call; until it is available, batch shell commands and file reads directly.
 
+## Working with the model
+
+If the model needs you to run a command, it can post a request card in **Admin → Activity**. Use **Copy** to run the exact command in its stated folder, then choose **Mark done** or **Skip**; the server never runs it for you. The model can check your response with `user_request_status`. A live Plan panel reflects its current todo list. When the model calls `finish`, the Admin Activity page shows its report and evidence. **Verified** means the server found a passing `verify` or `browser_check` and no open requests; otherwise the report includes warnings.
+
 ## Tools
 
 | Tool | What it does |
