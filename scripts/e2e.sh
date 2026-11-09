@@ -28,6 +28,25 @@ printf 'Local Coder MCP e2e fixture\n' >"$fixture"
 export PORT=18787 ADMIN_PORT=18788 DATA_VOLUME="$temp_dir/data"
 # Create it as the host user; Docker would create a missing bind source as root.
 mkdir -p "$DATA_VOLUME"
+cat >"$DATA_VOLUME/plugin-echo.mjs" <<'EOF'
+import { createRequire } from "node:module";
+
+const require = createRequire("/app/package.json");
+const { Server } = require("@modelcontextprotocol/sdk/server/index.js");
+const { StdioServerTransport } = require("@modelcontextprotocol/sdk/server/stdio.js");
+const { CallToolRequestSchema, ListToolsRequestSchema } = require("@modelcontextprotocol/sdk/types.js");
+
+const server = new Server({ name: "local-coder-e2e-echo", version: "1.0.0" }, { capabilities: { tools: {} } });
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [{ name: "echo", description: "Return the supplied text.", inputSchema: {
+    type: "object", properties: { text: { type: "string" } }, required: ["text"],
+  } }],
+}));
+server.setRequestHandler(CallToolRequestSchema, async (request) => ({
+  content: [{ type: "text", text: String(request.params.arguments?.text ?? "") }],
+}));
+await server.connect(new StdioServerTransport());
+EOF
 compose() { docker compose -p "$project" --env-file .env "$@"; }
 compose build
 compose up -d
@@ -153,4 +172,42 @@ echo "$finish_result" | jq -e '.result and (.error | not) and (.result.isError !
 curl --fail --silent --show-error "$admin/api/finishes?limit=20" \
   | jq -e 'any(.[]; .summary == "Local Coder E2E finish report" and (.verified | type == "boolean"))' >/dev/null
 echo "MCP finish and Admin finish report: ok"
+
+# Add a local stdio fixture and verify the separate plugin MCP endpoint.
+plugin_input=$(jq -cn '{id:"e2e-echo",name:"E2E Echo",enabled:true,trusted:false,transport:{type:"stdio",command:"node",args:["/data/plugin-echo.mjs"],cwd:"/data"}}')
+curl --fail --silent --show-error -X POST -H 'Content-Type: application/json' \
+  -d "$plugin_input" "http://127.0.0.1:${ADMIN_PORT}/api/plugins" \
+  | jq -e '.id == "e2e-echo" and .transport.command == "node"' >/dev/null
+plugin_summary=
+for attempt in $(seq 1 65); do
+  plugin_summary=$(curl --silent --show-error "http://127.0.0.1:${ADMIN_PORT}/api/plugins" || true)
+  if echo "$plugin_summary" | jq -e 'any(.[]; .id == "e2e-echo" and .status.state == "ready")' >/dev/null 2>&1; then break; fi
+  sleep 1
+done
+echo "$plugin_summary" | jq -e 'any(.[]; .id == "e2e-echo" and .status.state == "ready" and .status.toolCount == 1)' >/dev/null
+echo "Admin plugin reaches Ready: ok"
+
+plugin_base="http://127.0.0.1:${PORT}/mcp/plugins/${mcp_token}"
+plugin_headers="$temp_dir/plugin-headers"
+plugin_initialize=$(curl --fail --silent --show-error -H "$auth" -H "$accept" -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"e2e-plugin","version":"1.0"}}}' \
+  "$plugin_base" -D "$plugin_headers")
+plugin_session=$(awk 'tolower($1) == "mcp-session-id:" { gsub("\r", "", $2); print $2 }' "$plugin_headers" | tail -n 1)
+if [[ -z "$plugin_session" ]]; then plugin_session_header=(); else plugin_session_header=(-H "Mcp-Session-Id: $plugin_session"); fi
+plugin_rpc() { curl --fail --silent --show-error -H "$auth" -H "$accept" -H 'Content-Type: application/json' "${plugin_session_header[@]}" -d "$1" "$plugin_base"; }
+plugin_initialize=$(json_response "$plugin_initialize")
+echo "$plugin_initialize" | jq -e '.result.serverInfo.name or .result.protocolVersion' >/dev/null
+plugin_rpc '{"jsonrpc":"2.0","method":"notifications/initialized"}' >/dev/null
+plugin_tools=$(json_response "$(plugin_rpc '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')")
+echo "$plugin_tools" | jq -e '[.result.tools[].name] | index("echo") != null' >/dev/null
+plugin_call=$(json_response "$(plugin_rpc '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"echo","arguments":{"text":"plugin-e2e-ok"}}}')")
+echo "$plugin_call" | jq -e '.result.isError != true and any(.result.content[]; .type == "text" and .text == "plugin-e2e-ok")' >/dev/null
+echo "Plugin MCP endpoint and echo call: ok"
+
+curl --fail --silent --show-error -X PATCH -H 'Content-Type: application/json' \
+  -d '{"enabled":false}' "http://127.0.0.1:${ADMIN_PORT}/api/plugins/e2e-echo/tools/echo" \
+  | jq -e '.enabled == false' >/dev/null
+plugin_tools=$(json_response "$(plugin_rpc '{"jsonrpc":"2.0","id":4,"method":"tools/list"}')")
+echo "$plugin_tools" | jq -e '[.result.tools[].name] | index("echo") == null' >/dev/null
+echo "Disabled plugin tool is unpublished: ok"
 echo "E2E smoke test passed."

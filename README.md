@@ -87,6 +87,10 @@ Built-in skills: `herdr`, `ui-design`, `code-review`, `git-workflow`, `skill-aut
 
 Built-ins: `/review`, `/test`, `/fix`, `/commit`, `/explain`, `/plan`, `/scaffold`, `/docs`, `/refactor`, `/deps`, `/delegate`, `/onboard`, `/ship`, `/verify`, `/todo`, and `/resume`. Add user commands in `data/commands/` or through the admin UI; each command is a Markdown file with a name, description, optional arguments, and prompt template.
 
+## Plugins
+
+Plugins connect external MCP servers and publish their tools on a separate endpoint, keeping the core tool list small. Add one from **Admin → Plugins** using a recipe or a manual stdio/HTTP connection; recipes include pinned versions and setup notes. Connect clients to the second app URL, `<base>/mcp/plugins/<token>`, shown on the Connect page. The **Trusted** switch treats that plugin's tools as read-only; leave it off unless you trust the server. Secrets are masked in the admin API. Publication is capped at 256 tools and 250 KB of schemas, with 60 seconds to start, 120 seconds per call, and 2 MiB per result.
+
 ## Herdr integration
 
 When setup finds the Herdr CLI and its live socket, it enables the host-tools Compose override automatically and prints `herdr integration: enabled`. The override mounts the CLI and Herdr config directory, sets the Herdr environment, and makes the `herdr` skill available. Otherwise it prints `herdr integration: disabled`; install/start Herdr and run setup again to enable it. Set `HERDR_BIN` in `.env` if the CLI is installed outside the detected path.

@@ -19,6 +19,10 @@ services:
       USER_SKILLS_DIR: /data/skills
       BUILTIN_COMMANDS_DIR: /app/commands
       USER_COMMANDS_DIR: /data/commands
+      BUILTIN_PLUGINS_DIR: /app/plugins
+      npm_config_cache: /data/cache/npm
+      UV_CACHE_DIR: /data/cache/uv
+      UV_TOOL_DIR: /data/cache/uv-tools
     ports:
       - "127.0.0.1:${ADMIN_PORT:-8788}:8788"
       - "127.0.0.1:${PORT:-8787}:8787"
