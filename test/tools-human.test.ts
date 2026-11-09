@@ -373,3 +373,21 @@ test("human and finish tools: ask_user, user_request_status, finish", async (t) 
     assert.match(res.summary, /last finish:/);
   });
 });
+
+test("finish evidence ignores runs recorded in another workspace", async () => {
+  const { collectFinishEvidence } = await import("../src/tools/lib/evidence.js");
+  const { createTestEnvironment } = await import("./helpers.js");
+  const env = await createTestEnvironment();
+  try {
+    const ws = env.ctx.workspace.active();
+    env.ctx.activity.record({ tool: "run", args: JSON.stringify({ verify: true }), ok: true, summary: "checks passed", ms: 1, workspace: "/somewhere/else" });
+    const r = await collectFinishEvidence(env.ctx, ws);
+    assert.equal(r.evidence.verify, undefined);
+    assert.equal(r.verified, false);
+    env.ctx.activity.record({ tool: "run", args: JSON.stringify({ verify: true }), ok: true, summary: "checks passed", ms: 1, workspace: ws });
+    const r2 = await collectFinishEvidence(env.ctx, ws);
+    assert.equal(r2.evidence.verify?.ok, true);
+  } finally {
+    await env.cleanup();
+  }
+});

@@ -40,6 +40,7 @@ export function isEditFiles(entry: ActivityEntry): boolean {
 }
 
 function matchesWorkspace(entry: ActivityEntry, workspaceRoot: string): boolean {
+  if (entry.workspace) return path.resolve(entry.workspace) === path.resolve(workspaceRoot);
   if (!entry.args) return true;
   try {
     const parsed = JSON.parse(entry.args);

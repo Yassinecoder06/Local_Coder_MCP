@@ -16,6 +16,8 @@ export interface ActivityEntry {
   ok: boolean;
   summary: string;
   ms: number;
+  /** Active workspace root when the call finished. */
+  workspace?: string;
   /** Set on calls made from inside `exec`: the `exec` call's own activity id is not known yet, so this is "exec". */
   via?: "exec";
 }

@@ -210,6 +210,7 @@ export async function createMcpServer(
     ctx.activity.record({
       session: sid,
       client,
+      workspace: ctx.workspace.active(),
       tool: name,
       args: summarizeArgs(args),
       ok: res.ok,
@@ -260,6 +261,7 @@ export async function createMcpServer(
         ctx.activity.record({
           session: sid,
           client,
+          workspace: ctx.workspace.active(),
           tool: tool.name,
           args: summarizeArgs(args),
           ok: res.ok,
