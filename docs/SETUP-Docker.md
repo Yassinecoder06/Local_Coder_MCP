@@ -1,6 +1,6 @@
 # Docker setup
 
-The supported setup uses Docker Compose v2 and Node 22 inside a multi-stage image. The container runs as the host UID/GID configured in `.env`; `/data` stores server state, while the projects directory is mounted at its original absolute path so MCP file paths match host paths.
+The supported setup uses Docker Compose v2 and Node 22 inside a multi-stage image. The container runs as the host UID/GID configured in `.env`; `/data` stores server state, while `MOUNT_DIR` is bind-mounted at its original absolute path so MCP file paths match host paths.
 
 ## Install
 
@@ -11,6 +11,8 @@ The supported setup uses Docker Compose v2 and Node 22 inside a multi-stage imag
 The setup script checks Docker and Compose, creates `.env` without replacing an existing file, generates an access key once, asks for a projects directory, records the current host UID/GID, builds the image, and starts the service. Use `--yes` for non-interactive setup with `~/Projects` as the default.
 
 Open [http://localhost:8788](http://localhost:8788) and choose your AI client on the **Connect** page. The MCP endpoint is `/mcp`; the page shows the access key and OAuth or Bearer connection details. The server always listens on `8787` for MCP and `8788` for admin inside the container. `PORT` and `ADMIN_PORT` in `.env` select the host ports Compose publishes; for example, `PORT=3000` maps host port `3000` to MCP port `8787` and is passed to the server as `HOST_PORT`.
+
+Setup asks once which host folder the server may reach. The default is `PROJECTS_DIR`; the selected `MOUNT_DIR` is mounted at the same path in the container. To change it later, update `MOUNT_DIR` in `.env` and run `make up`. The container can read and write everything beneath that folder.
 
 ## Optional host tools and skills
 

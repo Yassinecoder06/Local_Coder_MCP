@@ -13,6 +13,8 @@ services:
       HOST_PORT: ${PORT:-8787}
       ADMIN_PORT: "8788"
       WORKSPACE_ROOTS: ${PROJECTS_DIR:?Set PROJECTS_DIR in .env}
+      MOUNT_DIR: ${MOUNT_DIR:-${PROJECTS_DIR}}
+      ALLOWED_ROOTS: ${ALLOWED_ROOTS:-}
       TUNNEL_METRICS_URL: http://tunnel:2000
       DATA_DIR: /data
       BUILTIN_SKILLS_DIR: /app/skills
@@ -28,7 +30,7 @@ services:
       - "127.0.0.1:${PORT:-8787}:8787"
     volumes:
       - ${DATA_VOLUME:-./data}:/data
-      - ${PROJECTS_DIR:?Set PROJECTS_DIR in .env}:${PROJECTS_DIR:?Set PROJECTS_DIR in .env}
+      - ${MOUNT_DIR:-${PROJECTS_DIR:?Set PROJECTS_DIR in .env}}:${MOUNT_DIR:-${PROJECTS_DIR:?Set PROJECTS_DIR in .env}}
       - ${HOME}/.gitconfig:/home/app/.gitconfig:ro
     restart: unless-stopped
 

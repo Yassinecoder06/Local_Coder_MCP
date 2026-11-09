@@ -8,6 +8,8 @@ env_value() {
   awk -v key="$1" 'index($0, key "=") == 1 { sub("^[^=]*=", ""); sub("\r$", ""); print; exit }' .env
 }
 projects_dir=$(env_value PROJECTS_DIR)
+mount_dir=$(env_value MOUNT_DIR)
+mount_dir=${mount_dir:-$projects_dir}
 mcp_token=$(env_value MCP_TOKEN)
 : "${projects_dir:?PROJECTS_DIR is required in .env}"
 : "${mcp_token:?MCP_TOKEN is required in .env}"
@@ -15,14 +17,17 @@ mcp_token=$(env_value MCP_TOKEN)
 project="local-coder-e2e-$$"
 temp_dir=$(mktemp -d)
 fixture=$(mktemp "$projects_dir/.local-coder-e2e.XXXXXX")
+workspace_root=$(mktemp -d "$mount_dir/.local-coder-e2e-root.XXXXXX")
 headers="$temp_dir/headers"
 cleanup() {
   docker compose -p "$project" --env-file .env down --volumes --remove-orphans >/dev/null 2>&1 || true
   rm -f "$fixture"
+  rm -rf "$workspace_root"
   rm -rf "$temp_dir"
 }
 trap cleanup EXIT
 printf 'Local Coder MCP e2e fixture\n' >"$fixture"
+printf 'Workspace roots E2E fixture\n' >"$workspace_root/workspace-root-e2e-marker.txt"
 
 # The isolated project name, ports, and data path leave the user's running stack intact.
 export PORT=18787 ADMIN_PORT=18788 DATA_VOLUME="$temp_dir/data"
@@ -210,4 +215,45 @@ curl --fail --silent --show-error -X PATCH -H 'Content-Type: application/json' \
 plugin_tools=$(json_response "$(plugin_rpc '{"jsonrpc":"2.0","id":4,"method":"tools/list"}')")
 echo "$plugin_tools" | jq -e '[.result.tools[].name] | index("echo") == null' >/dev/null
 echo "Disabled plugin tool is unpublished: ok"
+
+# Verify editable workspace roots against the admin contract on a mounted path.
+workspace_payload=$(jq -cn --arg root "$workspace_root" '{roots:[$root],defaultWorkspace:$root}')
+workspace_http=$(curl --silent --show-error -o "$temp_dir/workspaces-put.json" -w '%{http_code}' \
+  -H 'Content-Type: application/json' -X PUT -d "$workspace_payload" \
+  "http://127.0.0.1:${ADMIN_PORT}/api/workspaces")
+[[ "$workspace_http" == 200 ]] || { echo "Saving a mounted workspace root returned HTTP $workspace_http." >&2; exit 1; }
+jq -e --arg root "$workspace_root" '.roots == [$root] and .defaultWorkspace == $root and .source == "settings"' \
+  "$temp_dir/workspaces-put.json" >/dev/null
+echo "Admin saves mounted workspace roots: ok"
+
+workspace_headers="$temp_dir/workspace-headers"
+workspace_initialize=$(curl --fail --silent --show-error -H "$auth" -H "$accept" -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"e2e-workspace","version":"1.0"}}}' \
+  "$base" -D "$workspace_headers")
+workspace_session=$(awk 'tolower($1) == "mcp-session-id:" { gsub("\r", "", $2); print $2 }' "$workspace_headers" | tail -n 1)
+if [[ -z "$workspace_session" ]]; then workspace_session_header=(); else workspace_session_header=(-H "Mcp-Session-Id: $workspace_session"); fi
+workspace_rpc() { curl --fail --silent --show-error -H "$auth" -H "$accept" -H 'Content-Type: application/json' "${workspace_session_header[@]}" -d "$1" "$base"; }
+workspace_initialize=$(json_response "$workspace_initialize")
+echo "$workspace_initialize" | jq -e '.result.serverInfo.name or .result.protocolVersion' >/dev/null
+workspace_rpc '{"jsonrpc":"2.0","method":"notifications/initialized"}' >/dev/null
+workspace_call=$(jq -cn --arg root "$workspace_root" \
+  '{jsonrpc:"2.0",id:2,method:"tools/call",params:{name:"list",arguments:{path:$root,depth:1}}}')
+workspace_list=$(json_response "$(workspace_rpc "$workspace_call")")
+echo "$workspace_list" | jq -e '(.result | tostring) | contains("workspace-root-e2e-marker.txt")' >/dev/null
+echo "MCP can list the new workspace root: ok"
+
+outside_payload=$(jq -cn --arg root "$workspace_root" '{roots:[$root,"/etc"],defaultWorkspace:$root}')
+outside_http=$(curl --silent --show-error -o "$temp_dir/workspaces-outside.json" -w '%{http_code}' \
+  -H 'Content-Type: application/json' -X PUT -d "$outside_payload" \
+  "http://127.0.0.1:${ADMIN_PORT}/api/workspaces")
+[[ "$outside_http" == 400 ]] || { echo "Saving an outside workspace root returned HTTP $outside_http, expected 400." >&2; exit 1; }
+jq -e '(.error | strings | ascii_downcase | test("mount_dir|allowed_roots"))' \
+  "$temp_dir/workspaces-outside.json" >/dev/null
+echo "Admin rejects an outside workspace root: ok"
+
+curl --fail --silent --show-error -X DELETE "http://127.0.0.1:${ADMIN_PORT}/api/workspaces" \
+  | jq -e '.source == "env"' >/dev/null
+curl --fail --silent --show-error "http://127.0.0.1:${ADMIN_PORT}/api/status" \
+  | jq -e '.workspaceSource == "env"' >/dev/null
+echo "Admin resets workspace roots to .env: ok"
 echo "E2E smoke test passed."
