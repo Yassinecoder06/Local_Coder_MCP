@@ -6,6 +6,7 @@ import { renderCommands } from './js/pages/commands.js';
 import { renderConnect } from './js/pages/connect.js';
 import { renderSettings } from './js/pages/settings.js';
 import { renderRequests, closeBoardStream, refreshOpenRequestCount } from './js/pages/requests.js';
+import { renderPlugins, closePluginsPage } from './js/pages/plugins.js';
 import { renderSkills } from './js/pages/skills.js';
 import { renderTools } from './js/pages/tools.js';
 
@@ -18,6 +19,7 @@ let healthChecked = false;
 async function renderRoute(route) {
   if (route !== 'activity') closeActivityStream();
   if (route !== 'requests') closeBoardStream();
+  if (route !== 'plugins') closePluginsPage();
   view.innerHTML = '<div class="skeleton skeleton-title"></div><div class="skeleton skeleton-card"></div>';
 
   try {
@@ -33,6 +35,7 @@ async function renderRoute(route) {
       skills: () => renderSkills(view),
       commands: () => renderCommands(view),
       tools: () => renderTools(view, serverStatus),
+      plugins: () => renderPlugins(view, serverStatus),
       activity: () => renderActivity(view),
       requests: () => renderRequests(view),
       settings: () => renderSettings(view, serverStatus),
