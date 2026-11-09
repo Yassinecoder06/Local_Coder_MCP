@@ -3,10 +3,12 @@
 [![CI](https://github.com/Yassinecoder06/Local_Coder_MCP/actions/workflows/ci.yml/badge.svg)](https://github.com/Yassinecoder06/Local_Coder_MCP/actions/workflows/ci.yml)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-Local Coder MCP is a self-hosted MCP server that connects ChatGPT and Gemini web to your local coding workspaces. It provides file, shell, git, skills, and command tools while keeping the admin UI on your machine.
+Self-hosted MCP coding tools for your local workspaces, available to any compatible AI client.
+
+**Works with:** ChatGPT, Gemini, Claude, Claude Code, Cursor, VS Code, Codex CLI, Gemini CLI, Le Chat, and other MCP clients.
 
 ```text
-ChatGPT / Gemini ── HTTPS tunnel (optional) ──► MCP :8787
+Any MCP client ─── HTTPS tunnel (optional) ───► MCP :8787
 Browser on this machine ──────────────────────► Admin :8788 (loopback only)
                                                    │
                                       Docker ──────┴── /data + mounted projects
@@ -22,32 +24,25 @@ Browser on this machine ──────────────────�
 
 2. Run `./scripts/setup.sh` (or `./scripts/setup.sh --yes` to accept defaults). Docker Compose v2 is required.
 3. Open [http://localhost:8788](http://localhost:8788) and copy the connection URL and access key shown on the admin **Connect** page.
-4. Connect ChatGPT or Gemini using the steps below. Web clients also need a public HTTPS URL; see [Getting a public HTTPS URL](#getting-a-public-https-url).
+4. Connect any compatible client using the endpoint and access key on the admin **Connect** page. Remote clients need a public HTTPS URL; see [Getting a public HTTPS URL](#getting-a-public-https-url).
 
 Your project directory defaults to `~/Projects`. It is mounted at the same absolute path inside the container, so file paths stay identical. Change it in `.env` and restart with `docker compose up -d`.
 
-## Connect ChatGPT
+## Connect your client
 
-Custom MCP apps are available on ChatGPT Business and Enterprise/Edu web plans. A workspace admin may need to enable developer mode or grant permission first.
+Use the MCP URL shown on the admin **Connect** page, normally `<base>/mcp`, and the access key shown there. Choose OAuth and sign in with the access key, or configure the client to send `Authorization: Bearer <key>`. Some clients support the URL form `<base>/mcp/<key>` instead. Remote clients must be able to reach the server over HTTPS; see [Getting a public HTTPS URL](#getting-a-public-https-url). Client menus, plan availability, and configuration formats can change; use the linked client documentation for current details.
 
-1. In ChatGPT, open **Settings → Apps → Advanced settings** and enable **Developer mode** if available. Business admins can also enable it from **Workspace settings → Apps → Create**; Enterprise/Edu admins manage access under **Workspace settings → Permissions & Roles → Connected Data**.
-2. Go to **Settings → Apps → Create** (or **Workspace settings → Apps → Create** if you are an admin) and enter the MCP URL from Local Coder's admin page.
-3. Choose the offered authentication method. For OAuth, complete the access-key login; for token authentication, use the token URL from the admin page. Scan the tools and create the app.
-4. In a chat, select the new app for a message, then ask it to inspect or edit a project.
-
-See [OpenAI's current setup guide](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-connectors-in-chatgpt) for plan and workspace details.
-
-## Connect Gemini
-
-Gemini custom apps require an eligible plan/account that offers the feature. Google currently limits availability by account, region, and settings; OAuth with Dynamic Client Registration (DCR) is required for the guided login flow. The access key shown by Local Coder is the OAuth login credential.
-
-1. Open [gemini.google.com](https://gemini.google.com).
-2. Click **Settings → Connected Apps**. If it is missing, first open **Personal Intelligence → Connected Apps**.
-3. Under **Custom apps**, choose **Add a custom app** (or enter the MCP URL in the add-app field), then paste the MCP URL from the admin page.
-4. Click **Next**. Leave **OAuth Client ID** and **OAuth Client secret** empty because Local Coder self-registers the client. When prompted to sign in, use the access key from the admin **Connect** page.
-5. In a prompt, type `@` and select the custom app to use it.
-
-See [Google's custom app guide](https://support.google.com/gemini/answer/17209137) for current eligibility and availability.
+| Client | Connection steps |
+|---|---|
+| **ChatGPT web** | Open **Settings → Apps & Connectors → Advanced → Developer mode → Create** and enter `<base>/mcp`. Choose OAuth and sign in with the access key, or choose no auth and use `<base>/mcp/<key>`. See [OpenAI's guide](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-connectors-in-chatgpt). |
+| **Gemini web** | Open **Settings → Connected apps → Add custom app** and enter `<base>/mcp`. Leave Client ID and secret empty, then sign in with the access key. See [Google's guide](https://support.google.com/gemini/answer/17209137). |
+| **Claude.ai / Claude Desktop** | Open **Settings → Connectors → Add custom connector**, enter `<base>/mcp`, then complete OAuth sign-in with the access key. See [Anthropic's guide](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp). |
+| **Claude Code** | Run `claude mcp add --transport http local-coder <base>/mcp --header "Authorization: Bearer <key>"`. See [Claude Code MCP docs](https://code.claude.com/docs/en/mcp). |
+| **Cursor** | Add this entry to `~/.cursor/mcp.json`: `{"mcpServers":{"local-coder":{"url":"<base>/mcp","headers":{"Authorization":"Bearer <key>"}}}}`. See [Cursor MCP docs](https://docs.cursor.com/context/model-context-protocol). |
+| **VS Code** | Add this entry to `.vscode/mcp.json`: `{"servers":{"local-coder":{"type":"http","url":"<base>/mcp","headers":{"Authorization":"Bearer <key>"}}}}`. See [VS Code MCP docs](https://code.visualstudio.com/docs/agent-customization/mcp-servers). |
+| **Gemini CLI** | Add to `~/.gemini/settings.json`: `{"mcpServers":{"local-coder":{"httpUrl":"<base>/mcp","headers":{"Authorization":"Bearer <key>"}}}}`. See [Gemini CLI MCP docs](https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md). |
+| **Codex CLI** | Add `[mcp_servers.local-coder]` and `url = "<base>/mcp"`, `bearer_token_env_var = "LOCAL_CODER_TOKEN"` to `~/.codex/config.toml`, then `export LOCAL_CODER_TOKEN=<key>`. See [Codex MCP docs](https://learn.chatgpt.com/docs/extend/mcp?surface=cli). |
+| **Le Chat and other MCP clients** | For any client that supports remote Streamable HTTP MCP, configure `<base>/mcp` with `Authorization: Bearer <key>`, or use OAuth discovery and sign in with the access key. Follow the client's MCP setup documentation. |
 
 ## Getting a public HTTPS URL
 
@@ -70,7 +65,7 @@ The admin port remains bound to `127.0.0.1` and is never sent through the tunnel
 Choose an approval mode in `.env` or switch it live in **Admin → Settings**:
 
 - **Trust** never asks for confirmation. It marks every tool as read-only to the client. Use this only if you trust the prompts and content in your workspace: text the AI reads could instruct it to run commands without asking.
-- **Minimal** is the default. Read-only tools never ask. Only four tools ask once each: `edit_files`, `run`, `git_write`, and `skill_save`. In ChatGPT or Gemini, click **Always allow** once per tool.
+- **Minimal** is the default. Read-only tools never ask. Only four tools ask once each: `edit_files`, `run`, `git_write`, and `skill_save`. In clients with per-tool approval controls, click **Always allow** once per tool.
 - **Standard** uses conservative annotations, so clients may ask for confirmation each time a mutating or command tool runs.
 
 ## Skills
@@ -96,7 +91,7 @@ Built-ins: `/review`, `/test`, `/fix`, `/commit`, `/explain`, `/plan`, `/scaffol
 
 When setup finds the Herdr CLI and its live socket, it enables the host-tools Compose override automatically and prints `herdr integration: enabled`. The override mounts the CLI and Herdr config directory, sets the Herdr environment, and makes the `herdr` skill available. Otherwise it prints `herdr integration: disabled`; install/start Herdr and run setup again to enable it. Set `HERDR_BIN` in `.env` if the CLI is installed outside the detected path.
 
-This lets ChatGPT or Gemini use the `herdr` skill to inspect and drive real host terminals and CLI agents. Herdr can send commands and input to those terminals, so protect the Local Coder access key and only connect clients you trust.
+This lets a connected AI client use the `herdr` skill to inspect and drive real host terminals and CLI agents. Herdr can send commands and input to those terminals, so protect the Local Coder access key and only connect clients you trust.
 
 ## Verification
 

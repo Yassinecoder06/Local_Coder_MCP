@@ -1,7 +1,19 @@
 {
   "name": "local-coder-mcp",
   "version": "1.0.0",
-  "description": "Self-hosted MCP server that turns ChatGPT web and Gemini web into a local coding agent: files, shell, git, skills and commands, in Docker.",
+  "description": "Self-hosted MCP coding server for AI clients, with local files, shell, git, skills, and commands in Docker.",
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "ai-coding",
+    "claude",
+    "chatgpt",
+    "gemini",
+    "cursor",
+    "self-hosted",
+    "docker"
+  ],
   "type": "module",
   "main": "dist/index.js",
   "bin": {

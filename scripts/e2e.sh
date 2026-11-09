@@ -62,6 +62,20 @@ echo "$tools" | jq -e '[.result.tools[].name] | index("status") != null and inde
 status=$(json_response "$(rpc '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"status","arguments":{}}}')")
 echo "$status" | jq -e '.result and (.error | not) and (.result.isError != true)' >/dev/null
 echo "MCP tools/call status: ok"
+
+# Verify that the server records a non-default MCP client identity from initialize.
+claude_headers="$temp_dir/claude-headers"
+claude_initialize=$(curl --fail --silent --show-error -H "$auth" -H "$accept" -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":6,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"claude-code","version":"1.0"}}}' "$base" -D "$claude_headers")
+claude_initialize=$(json_response "$claude_initialize")
+echo "$claude_initialize" | jq -e '.result.serverInfo.name or .result.protocolVersion' >/dev/null
+claude_session=$(awk 'tolower($1) == "mcp-session-id:" { gsub("\r", "", $2); print $2 }' "$claude_headers" | tail -n 1)
+if [[ -z "$claude_session" ]]; then claude_session_header=(); else claude_session_header=(-H "Mcp-Session-Id: $claude_session"); fi
+claude_rpc() { curl --fail --silent --show-error -H "$auth" -H "$accept" -H 'Content-Type: application/json' "${claude_session_header[@]}" -d "$1" "$base"; }
+claude_rpc '{"jsonrpc":"2.0","method":"notifications/initialized"}' >/dev/null
+claude_status=$(json_response "$(claude_rpc '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"status","arguments":{}}}')")
+echo "$claude_status" | jq -e '.result and (.error | not) and (.result.isError != true)' >/dev/null
+echo "MCP initialize client claude-code: ok"
 read_result=$(json_response "$(rpc "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"read\",\"arguments\":{\"paths\":[\"$fixture\"]}}}")")
 echo "$read_result" | jq -e '.result and (.error | not) and (.result.isError != true) and ((.result | tostring) | contains("Local Coder MCP e2e fixture"))' >/dev/null
 echo "MCP tools/call read: ok"
@@ -74,4 +88,6 @@ fi
 echo "MCP browser_check screenshot: ok"
 curl --fail --silent --show-error "http://127.0.0.1:${ADMIN_PORT}/api/status" | jq -e '.version and .endpoints' >/dev/null
 echo "Admin API: ok"
+curl --fail --silent --show-error "http://127.0.0.1:${ADMIN_PORT}/api/activity" | jq -e 'any(.[]; .client == "claude-code" and .tool == "status")' >/dev/null
+echo "Admin activity client claude-code: ok"
 echo "E2E smoke test passed."

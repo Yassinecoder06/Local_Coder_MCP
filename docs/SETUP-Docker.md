@@ -10,7 +10,7 @@ The supported setup uses Docker Compose v2 and Node 22 inside a multi-stage imag
 
 The setup script checks Docker and Compose, creates `.env` without replacing an existing file, generates an access key once, asks for a projects directory, records the current host UID/GID, builds the image, and starts the service. Use `--yes` for non-interactive setup with `~/Projects` as the default.
 
-Open [http://localhost:8788](http://localhost:8788) for status and client connection details. The server always listens on `8787` for MCP and `8788` for admin inside the container. `PORT` and `ADMIN_PORT` in `.env` select the host ports Compose publishes; for example, `PORT=3000` maps host port `3000` to MCP port `8787` and is passed to the server as `HOST_PORT`.
+Open [http://localhost:8788](http://localhost:8788) and choose your AI client on the **Connect** page. The MCP endpoint is `/mcp`; the page shows the access key and OAuth or Bearer connection details. The server always listens on `8787` for MCP and `8788` for admin inside the container. `PORT` and `ADMIN_PORT` in `.env` select the host ports Compose publishes; for example, `PORT=3000` maps host port `3000` to MCP port `8787` and is passed to the server as `HOST_PORT`.
 
 ## Optional host tools and skills
 
@@ -35,4 +35,4 @@ docker compose down            # stop
 
 The container health check calls `/health`. MCP and admin ports bind only to loopback on the host. Start a Quick Tunnel with `docker compose --profile tunnel up -d`; its URL is discovered automatically and appears in the admin UI. If you already have a domain or tunnel, route it to the host `PORT`, set `PUBLIC_URL=https://your-domain`, and skip the tunnel profile. A stable named Cloudflare tunnel uses `docker compose --profile named-tunnel up -d named-tunnel` with `CLOUDFLARE_TUNNEL_TOKEN` and `PUBLIC_URL` set in `.env`. `PUBLIC_URL` also configures Tailscale Funnel or ngrok. See the main [README](../README.md#getting-a-public-https-url) for details.
 
-The runtime includes headless Chromium at `CHROMIUM_PATH` for the read-only `browser_check` screenshot tool. It runs as the non-root service user, with a 1 GB shared-memory segment for rendering.
+The runtime includes headless Chromium at `CHROMIUM_PATH` for the read-only `browser_check` screenshot tool. It runs as the non-root service user, with a 1 GB shared-memory segment for rendering. Any MCP client supporting remote Streamable HTTP can connect using the endpoint and authentication details on the Connect page.
