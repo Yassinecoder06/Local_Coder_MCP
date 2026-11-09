@@ -4,6 +4,7 @@ import { escapeHtml, pageHeader, timeAgo } from '../ui.js';
 let activity = [];
 let eventSource;
 let paused = false;
+const expandedExecs = new Set();
 
 const CLIENTS = {
   chatgpt: { label: 'ChatGPT', icon: 'C' },
@@ -25,6 +26,7 @@ function clientInfo(name = '') {
 }
 
 export async function renderActivity(view) {
+  expandedExecs.clear();
   activity = await request('/activity?limit=100');
   view.innerHTML = `${pageHeader(
     'LIVE MONITOR',
@@ -41,9 +43,18 @@ export async function renderActivity(view) {
   <div id="activity-empty" class="empty-state compact" hidden><div class="empty-icon">↗</div>
     <h2>No activity yet</h2><p>Tool calls will appear here as they happen.</p></div>`;
   drawActivity(view);
+  view.querySelector('#activity-body').onclick = (event) => {
+    const toggle = event.target.closest('[data-exec-toggle]');
+    if (!toggle) return;
+    const id = toggle.dataset.execToggle;
+    if (expandedExecs.has(id)) expandedExecs.delete(id);
+    else expandedExecs.add(id);
+    drawActivity(view);
+  };
   view.querySelector('#pause-activity').onclick = togglePause;
   view.querySelector('#clear-activity').onclick = () => {
     activity = [];
+    expandedExecs.clear();
     drawActivity(view);
   };
   eventSource?.close();
@@ -69,20 +80,83 @@ function togglePause(event) {
 function drawActivity(view) {
   const body = view.querySelector('#activity-body');
   if (!body) return;
-  body.innerHTML = activity.map((entry) => {
-    const client = clientInfo(entry.client);
-    return `<tr>
+  body.innerHTML = groupActivity(activity).map(({ entry, children }) => {
+    const id = String(entry.id);
+    const expanded = expandedExecs.has(id);
+    const childRows = children
+      .map((child, index) => renderActivityRow(child, id, index, !expanded))
+      .join('');
+    const childIds = children.map((_, index) => `exec-inner-${id}-${index}`).join(' ');
+    const toggleRow = children.length ? `<tr class="activity-group-toggle">
+      <td colspan="6"><button type="button" data-exec-toggle="${escapeHtml(id)}"
+        aria-expanded="${expanded}" aria-controls="${escapeHtml(childIds)}">
+        ${children.length} inner calls</button></td>
+    </tr>` : '';
+    const rows = `${renderActivityRow(entry)}${toggleRow}`;
+    return `${rows}${childRows}`;
+  }).join('');
+  view.querySelector('#activity-empty').hidden = activity.length > 0;
+  view.querySelector('#activity-count').textContent = `${activity.length} recent events`;
+}
+
+function groupActivity(entries) {
+  const rows = [];
+  const parentBySession = new Map();
+  for (const entry of entries) {
+    const parent = entry.via === 'exec' && entry.session
+      ? parentBySession.get(entry.session)
+      : null;
+    if (parent) {
+      parent.children.push(entry);
+      continue;
+    }
+
+    const row = { entry, children: [] };
+    rows.push(row);
+    if (entry.tool === 'exec' && entry.session) parentBySession.set(entry.session, row);
+  }
+  return rows;
+}
+
+function renderActivityRow(entry, parentId = '', childIndex = 0, hidden = false) {
+  const nested = Boolean(parentId);
+  const client = clientInfo(entry.client);
+  const args = entry.tool === 'run' ? commandArgs(entry.args) : entry.args || '—';
+  const rowId = nested
+    ? ` id="exec-inner-${escapeHtml(parentId)}-${childIndex}"`
+    : '';
+  return `<tr class="${nested ? 'activity-child-row' : ''}"${rowId}${hidden ? ' hidden' : ''}>
     <td><span class="client-cell"><span class="client-mini">${escapeHtml(client.icon)}</span>
       ${escapeHtml(client.label)}</span></td>
     <td><code>${escapeHtml(entry.tool)}</code></td>
-    <td class="args-cell" title="${escapeHtml(entry.args || '')}">${escapeHtml(entry.args || '—')}</td>
+    <td class="args-cell" title="${escapeHtml(entry.args || '')}">${escapeHtml(args)}</td>
     <td class="activity-result-cell"><span class="result ${entry.ok ? 'result-ok' : 'result-error'}">
       ${entry.ok ? '● OK' : '● Error'}</span>${resultSummaryChip(entry)}</td>
     <td>${Number(entry.ms) || 0} ms</td><td title="${escapeHtml(entry.ts)}">${timeAgo(entry.ts)}</td>
   </tr>`;
-  }).join('');
-  view.querySelector('#activity-empty').hidden = activity.length > 0;
-  view.querySelector('#activity-count').textContent = `${activity.length} recent events`;
+}
+
+function commandArgs(args = '') {
+  const raw = String(args);
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    const jsonStart = raw.indexOf('{');
+    if (jsonStart >= 0) {
+      try {
+        parsed = JSON.parse(raw.slice(jsonStart));
+      } catch {
+        // Fall through to a small fallback for clipped activity summaries.
+      }
+    }
+  }
+  if (Array.isArray(parsed?.cmds)) return `${parsed.cmds.length} commands`;
+
+  const match = raw.match(/["']?cmds["']?\s*:\s*\[([\s\S]*)/i);
+  if (!match) return raw || '—';
+  const count = match[1].match(/"(?:\\.|[^"\\])*"/g)?.length || 0;
+  return count ? `${count}+ commands` : 'commands';
 }
 
 function resultSummaryChip(entry) {

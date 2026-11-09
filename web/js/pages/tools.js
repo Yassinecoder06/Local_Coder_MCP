@@ -58,6 +58,7 @@ function drawTools(view) {
         <span class="item-icon tool-icon">⊞</span><span class="item-copy">
           <strong>${escapeHtml(tool.title || tool.name)}</strong>
           <span>${escapeHtml(tool.description || tool.name)}</span>
+          ${tool.name === 'exec' ? '<span class="tool-explainer">One call runs a JS program that calls other tools — saves tool calls in web chats.</span>' : ''}
         </span><span class="badge risk-${escapeHtml(tool.risk)}">${escapeHtml(tool.risk)}</span>
         <label class="switch"><input type="checkbox" data-tool-toggle="${escapeHtml(tool.name)}"
           ${tool.enabled ? 'checked' : ''}><span></span>
