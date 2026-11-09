@@ -43,6 +43,8 @@ const Env = z.object({
   USER_SKILLS_DIR: z.string().default("./data/skills"),
   EXTRA_SKILLS_DIRS: z.string().optional(),
   BUILTIN_COMMANDS_DIR: z.string().default("./commands"),
+  /** Built-in plugin recipes (plugins/recipes.json). */
+  BUILTIN_PLUGINS_DIR: z.string().default("./plugins"),
   USER_COMMANDS_DIR: z.string().default("./data/commands"),
   /** minimal = annotate tools to minimise confirmation prompts (default); standard = conservative; trust = never ask (opt-in, see core/annotations.ts). */
   APPROVAL_MODE: z.enum(["trust", "minimal", "standard"]).default("minimal"),
@@ -74,6 +76,7 @@ export interface AppConfig {
   userSkillsDir: string;
   extraSkillsDirs: string[];
   builtinCommandsDir: string;
+  builtinPluginsDir: string;
   userCommandsDir: string;
   approvalMode: "trust" | "minimal" | "standard";
   toolProfile: "essential" | "full";
@@ -109,6 +112,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     userSkillsDir: path.resolve(e.USER_SKILLS_DIR),
     extraSkillsDirs: list(e.EXTRA_SKILLS_DIRS),
     builtinCommandsDir: path.resolve(e.BUILTIN_COMMANDS_DIR),
+    builtinPluginsDir: path.resolve(e.BUILTIN_PLUGINS_DIR),
     userCommandsDir: path.resolve(e.USER_COMMANDS_DIR),
     approvalMode: e.APPROVAL_MODE,
     toolProfile: e.TOOL_PROFILE,
