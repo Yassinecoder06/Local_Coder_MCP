@@ -27,6 +27,30 @@ const status = {
 };
 const connect = {
   token,
+  mcpUrl: 'http://localhost:8787/mcp',
+  clients: {
+    chatgpt: {
+      description: 'ChatGPT web connector using OAuth.',
+      steps: [
+        'Open Settings → Apps & Connectors → Advanced → Developer mode → Create.',
+        'Enter the MCP URL, choose OAuth, then sign in with the access key.',
+      ],
+    },
+    gemini: {
+      description: 'Gemini web custom app using OAuth.',
+      steps: [
+        'Open Settings → Connected apps → Add custom app.',
+        'Enter the MCP URL, leave Client ID and Client secret empty, then sign in.',
+      ],
+    },
+    claude: { description: 'Claude.ai and Claude Desktop remote connector.' },
+    'claude-code': { description: 'Claude Code remote HTTP server.' },
+    cursor: { description: 'Cursor MCP server configuration.' },
+    vscode: { description: 'Visual Studio Code MCP server configuration.' },
+    'gemini-cli': { description: 'Gemini CLI remote HTTP server.' },
+    codex: { description: 'Codex CLI remote HTTP server.' },
+    other: { description: 'Generic remote Streamable HTTP connection.' },
+  },
   chatgpt: {
     url: `http://localhost:8787/mcp/${token}`,
     steps: [
@@ -136,6 +160,26 @@ let settings = {
   toolProfile: 'essential',
 };
 let activity = [
+  ...[
+    'my-private-agent',
+    'le-chat',
+    'gemini-cli',
+    'codex',
+    'windsurf',
+    'vscode',
+    'cursor',
+    'claude-code',
+    'claude',
+  ].map((client, index) => ({
+    id: 15 - index,
+    ts: new Date(Date.now() - (20 + index) * 1000).toISOString(),
+    client,
+    tool: 'read',
+    args: 'paths: ["src/index.ts"]',
+    ok: true,
+    summary: 'Read 1 file',
+    ms: 18 + index,
+  })),
   {
     id: 6,
     ts: new Date(Date.now() - 9000).toISOString(),
