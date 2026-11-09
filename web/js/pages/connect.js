@@ -350,6 +350,7 @@ export async function renderConnect(view, status) {
   </article>
   <p class="connect-approval-hint">Seeing Allow prompts? Click Always allow once per tool, or enable
     <a href="#settings">Trust mode in Settings</a>.</p>
+  <p class="plugins-connect-hint">Need more tools? <a href="#plugins">Add plugins in Admin → Plugins</a> — they work in this same connector.</p>
   <section class="client-picker-section" aria-label="Client setup instructions">
     <div class="client-picker-heading"><h2>Choose your client</h2>
       <span class="muted">Setup instructions and configuration</span></div>

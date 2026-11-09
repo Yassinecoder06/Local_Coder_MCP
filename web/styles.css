@@ -424,7 +424,16 @@ textarea {
 .plugin-summary-row { flex-wrap: wrap; gap: 10px 20px; margin-top: 14px; color: var(--muted); font-size: 11px; }
 .plugin-summary-row strong { color: var(--text); }
 .switch-label { display: inline-flex; align-items: center; gap: 8px; color: var(--text); }
-.plugin-trust-warning { margin: 4px 0 0 auto; color: var(--amber); font-size: 10px; text-align: right; }
+.plugin-trust-hint { color: var(--muted); font-size: 10px; }
+.plugin-exec-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px 9px; margin-top: 12px; color: var(--text); font-size: 11px; }
+.plugin-exec-line > strong { color: var(--accent); }
+.plugin-exec-reason { color: var(--muted); }
+.schema-adjusted-badge { display: inline-block; margin-top: 9px; padding: 4px 7px; border-radius: 5px; background: var(--amber-bg); color: var(--amber); font-size: 10px; font-weight: 650; }
+.plugin-exec-snippet { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 9px; margin-top: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
+.plugin-exec-snippet > div { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 4px 9px; }
+.plugin-exec-snippet strong { color: var(--muted); font-size: 10px; }
+.plugin-exec-snippet code { font-size: 11px; overflow-wrap: anywhere; }
+.plugin-exec-snippet button { flex: 0 0 auto; }
 .plugin-tools-details, .plugin-log { margin-top: 13px; border-top: 1px solid var(--border); }
 .plugin-tools-details summary, .plugin-log summary { padding: 11px 0 3px; color: var(--text); cursor: pointer; font-size: 11px; font-weight: 680; }
 .plugin-tools-details summary span, .plugin-log summary span { margin-left: 5px; color: var(--muted); font-weight: 500; }
@@ -433,17 +442,50 @@ textarea {
 .plugin-tool > div { min-width: 0; }
 .plugin-tool strong { font-size: 11px; overflow-wrap: anywhere; }
 .plugin-tool p { margin: 2px 0 0; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
+.plugin-tool-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 5px; }
+.plugin-tool-badge { padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700; }
+.plugin-tool-badge.exec { background: var(--green-bg); color: var(--green); }
+.plugin-tool-badge.endpoint-only { background: var(--surface-2); color: var(--muted); }
+.plugin-tool-badge.unknown { background: var(--amber-bg); color: var(--amber); }
+.plugin-adjustments { display: inline-block; }
+.plugin-adjustments summary { padding: 2px 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); cursor: pointer; font-size: 9px; font-weight: 700; }
+.plugin-adjustments ul { display: grid; gap: 3px; margin: 5px 0; padding-left: 17px; color: var(--muted); font-size: 10px; }
 .plugin-unpublished { display: inline-block; margin-top: 3px; color: var(--amber); font-size: 10px; }
 .plugin-loading { margin: 9px 0; font-size: 11px; }
 .plugin-log pre { max-height: 180px; margin: 8px 0 0; padding: 10px; overflow: auto; border-radius: 7px; background: var(--surface-2); font-size: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .plugin-empty { padding: 20px; border: 1px dashed var(--border); border-radius: var(--radius); background: var(--surface); }
 .plugin-empty strong { font-size: 13px; }
 .plugin-empty p { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
-.plugin-dialog { width: min(620px, calc(100vw - 30px)); max-height: min(88vh, 760px); overflow: auto; }
+.plugin-dialog { width: min(540px, calc(100vw - 30px)); max-height: min(80dvh, 680px); padding: 20px; overflow: auto; }
 .plugin-dialog-panel > label, .plugin-dialog-panel form > label { margin: 12px 0; }
 .plugin-dialog-panel input, .plugin-dialog-panel textarea, .plugin-dialog-panel select { width: 100%; }
 .plugin-dialog-panel textarea { resize: vertical; }
 .plugin-dialog-panel [hidden] { display: none; }
+.plugin-paste-text { min-height: 128px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; }
+.paste-actions { display: flex; justify-content: flex-end; margin: 8px 0 12px; }
+.plugin-inline-error, .import-plugin-error { margin: 8px 0; padding: 8px 10px; border-radius: 7px; background: var(--red-bg); color: var(--red); font-size: 11px; overflow-wrap: anywhere; }
+.import-preview-card { position: relative; display: grid; gap: 9px; margin: 10px 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.import-preview-card.imported { border-color: color-mix(in srgb, var(--green), transparent 55%); }
+.import-preview-heading { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.import-preview-heading label, .import-secrets label { display: grid; gap: 4px; color: var(--muted); font-size: 10px; font-weight: 650; }
+.import-preview-heading input, .import-secrets input { color: var(--text); font-size: 12px; }
+.import-transport-summary { color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
+.import-secrets { display: grid; gap: 7px; padding-top: 7px; border-top: 1px solid var(--border); }
+.import-secrets > strong { font-size: 10px; }
+.import-secrets label span { font-weight: 400; }
+.import-added-label { justify-self: start; color: var(--green); font-size: 10px; font-weight: 700; }
+.import-warnings { margin: 10px 0; padding: 9px 11px; border-radius: 7px; background: var(--amber-bg); color: var(--amber); font-size: 10px; }
+.import-warnings ul { display: grid; gap: 3px; margin: 5px 0 0; padding-left: 17px; }
+.import-add-button { width: 100%; margin-top: 8px; }
+.plugins-main-info { margin-bottom: 16px; padding: 16px 18px; border: 1px solid color-mix(in srgb, var(--accent), transparent 72%); border-radius: var(--radius); background: var(--accent-soft); }
+.plugins-main-info > p { margin: 0; color: var(--text); font-size: 12px; }
+.plugins-main-info code { font-size: 11px; overflow-wrap: anywhere; }
+.plugins-separate-endpoint { margin-top: 11px; padding-top: 9px; border-top: 1px solid color-mix(in srgb, var(--accent), transparent 82%); }
+.plugins-separate-endpoint summary { color: var(--accent); cursor: pointer; font-size: 11px; font-weight: 650; }
+.plugins-separate-endpoint p { margin: 7px 0; color: var(--muted); font-size: 10px; }
+.plugins-separate-endpoint .plugins-url-row code { background: var(--surface); }
+.plugins-connect-hint { margin: 10px 0 18px; color: var(--muted); font-size: 12px; }
+.plugins-connect-hint a { color: var(--accent); font-weight: 650; }
 .recipe-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-top: 14px; }
 .recipe-card { display: grid; gap: 6px; min-width: 0; padding: 13px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); text-align: left; }
 .recipe-card:hover { border-color: var(--accent); background: var(--accent-soft); }
@@ -1354,7 +1396,8 @@ textarea {
 
 .trust-dialog,
 .confirm-dialog,
-.folder-picker {
+.folder-picker,
+.plugin-dialog {
   position: fixed;
   top: 50dvh;
   left: 50vw;
@@ -1365,6 +1408,12 @@ textarea {
   margin: 0;
   border-radius: var(--radius-lg);
   transform: translate(-50%, -50%);
+}
+
+.dialog.plugin-dialog {
+  width: min(540px, calc(100vw - 30px));
+  max-height: min(80dvh, 680px);
+  padding: 20px;
 }
 
 .trust-warning {
@@ -2257,7 +2306,8 @@ textarea {
     gap: 10px 14px;
   }
 
-  .plugin-trust-warning {
+  .plugin-trust-warning,
+  .plugin-trust-hint {
     margin-left: 0;
     text-align: left;
   }
