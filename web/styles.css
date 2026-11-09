@@ -373,6 +373,7 @@ textarea {
 .board-empty { display: flex; align-items: center; gap: 14px; padding: 19px; border: 1px dashed var(--border); border-radius: var(--radius); color: var(--muted); }
 .board-empty strong { color: var(--text); font-size: 13px; }
 .board-empty p { margin: 2px 0 0; font-size: 12px; }
+.board-empty .empty-icon { margin: 0; flex: none; }
 .todo-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .todo-item { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .todo-item:last-child { border-bottom: 0; }
