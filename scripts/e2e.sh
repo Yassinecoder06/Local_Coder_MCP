@@ -40,6 +40,16 @@ done
 [[ "${health:-}" == healthy ]] || { echo "Timed out waiting for healthy MCP service." >&2; compose logs mcp; exit 1; }
 echo "Container health: $health"
 
+# Match compose.host-tools.yaml's host HOME override with a path unavailable to
+# the container user. Raw Chromium should fall back to a writable temp profile.
+raw_dom=$(docker exec -e HOME=/home/nonwritable "$container" chromium --headless --no-sandbox --dump-dom about:blank 2>"$temp_dir/chromium.stderr")
+if ! grep -qi '<html' <<<"$raw_dom"; then
+  cat "$temp_dir/chromium.stderr" >&2
+  echo "Raw Chromium did not render about:blank with an unwritable HOME." >&2
+  exit 1
+fi
+echo "Raw Chromium with unwritable HOME: ok"
+
 base="http://127.0.0.1:${PORT}/mcp"
 auth="Authorization: Bearer $mcp_token"
 accept='Accept: application/json, text/event-stream'
@@ -85,7 +95,7 @@ if ! echo "$browser_result" | jq -e '.result.content | any(.[]; .type == "image"
   echo "MCP browser_check did not return an image block." >&2
   exit 1
 fi
-echo "MCP browser_check screenshot: ok"
+echo "MCP browser_check screenshot with wrapper: ok"
 curl --fail --silent --show-error "http://127.0.0.1:${ADMIN_PORT}/api/status" | jq -e '.version and .endpoints' >/dev/null
 echo "Admin API: ok"
 curl --fail --silent --show-error "http://127.0.0.1:${ADMIN_PORT}/api/activity" | jq -e 'any(.[]; .client == "claude-code" and .tool == "status")' >/dev/null

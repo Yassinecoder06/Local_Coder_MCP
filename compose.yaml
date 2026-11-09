@@ -7,6 +7,7 @@ services:
     environment:
       HOST: 0.0.0.0
       ADMIN_HOST: 0.0.0.0
+      CHROMIUM_PATH: /usr/local/bin/chromium
       # Container-internal ports are fixed; PORT/ADMIN_PORT in .env only choose the host ports.
       PORT: "8787"
       HOST_PORT: ${PORT:-8787}
