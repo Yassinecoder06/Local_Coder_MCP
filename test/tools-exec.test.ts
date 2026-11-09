@@ -214,4 +214,174 @@ test("exec tool: code-mode isolated execution", async (t) => {
     assert.match(JSON.stringify(res.data ?? res.summary), /12/);
     assert.ok(peak <= 8, `peak concurrency ${peak}`);
   });
+
+  await t.test("plugins proxy routes calls to ctx.plugins.call", async () => {
+    const pluginCalls: Array<{ plugin: string; tool: string; args: any }> = [];
+    const mockCtx = {
+      ...env.ctx,
+      callTool: async () => ({ ok: true, tool: "test", summary: "ok" }),
+      plugins: {
+        list: () => [
+          {
+            plugin: "test-plugin",
+            name: "ping",
+            description: "Ping tool",
+            inputSchema: {},
+            enabled: true,
+            published: true,
+            execAllowed: true,
+          },
+        ],
+        call: async (plugin: string, tool: string, args: Record<string, unknown>): Promise<ToolResult> => {
+          pluginCalls.push({ plugin, tool, args });
+          return { ok: true, tool: `${plugin}.${tool}`, summary: "pong", data: { echo: args } };
+        },
+      },
+    };
+
+    const code = `
+      const res = await plugins.test_plugin.ping({ message: "hello" });
+      text(res.summary);
+      text({ PLUGINS });
+    `;
+
+    const res = await execTool.handler({ code }, mockCtx);
+    assert.equal(res.ok, true, res.error);
+    assert.equal(pluginCalls.length, 1);
+    assert.equal(pluginCalls[0].plugin, "test-plugin");
+    assert.equal(pluginCalls[0].tool, "ping");
+    assert.deepEqual(pluginCalls[0].args, { message: "hello" });
+    assert.match(res.data?.text, /pong/);
+    assert.match(res.data?.text, /"plugin": "test-plugin"/);
+    assert.match(res.data?.text, /"tool": "ping"/);
+  });
+
+  await t.test("plugins proxy handles _ and - interchangeably in plugin ids", async () => {
+    const recordedPlugins: string[] = [];
+    const mockCtx = {
+      ...env.ctx,
+      callTool: async () => ({ ok: true, tool: "test", summary: "ok" }),
+      plugins: {
+        list: () => [
+          {
+            plugin: "chrome-devtools",
+            name: "eval",
+            description: "Eval in browser",
+            inputSchema: {},
+            enabled: true,
+            published: true,
+            execAllowed: true,
+          },
+        ],
+        call: async (plugin: string, tool: string, args: Record<string, unknown>): Promise<ToolResult> => {
+          recordedPlugins.push(plugin);
+          return { ok: true, tool: `${plugin}.${tool}`, summary: "ok" };
+        },
+      },
+    };
+
+    const code = `
+      await plugins.chrome_devtools.eval({ code: "1" });
+      await plugins["chrome-devtools"].eval({ code: "2" });
+    `;
+
+    const res = await execTool.handler({ code }, mockCtx);
+    assert.equal(res.ok, true, res.error);
+    assert.equal(recordedPlugins.length, 2);
+    assert.equal(recordedPlugins[0], "chrome-devtools");
+    assert.equal(recordedPlugins[1], "chrome-devtools");
+  });
+
+  await t.test("shares tool call limit between tools and plugins", async () => {
+    let calls = 0;
+    const mockCtx = {
+      ...env.ctx,
+      callTool: async (name: string): Promise<ToolResult> => {
+        calls++;
+        return { ok: true, tool: name, summary: "ok" };
+      },
+      plugins: {
+        list: () => [
+          {
+            plugin: "test-plugin",
+            name: "ping",
+            description: "Ping tool",
+            inputSchema: {},
+            enabled: true,
+            published: true,
+            execAllowed: true,
+          },
+        ],
+        call: async (): Promise<ToolResult> => {
+          calls++;
+          return { ok: true, tool: "test", summary: "ok" };
+        },
+      },
+    };
+
+    const code = `
+      for (let i = 0; i < 20; i++) {
+        await tools.status({});
+      }
+      for (let i = 0; i < 15; i++) {
+        await plugins.test_plugin.ping({});
+      }
+    `;
+
+    const res = await execTool.handler({ code }, mockCtx);
+    assert.equal(res.ok, false);
+    assert.match(res.error || "", /Exceeded maximum limit of 32 tool calls in exec/);
+  });
+
+  await t.test("rejects with clear message when ctx.plugins is undefined", async () => {
+    const mockCtx = {
+      ...env.ctx,
+      callTool: async () => ({ ok: true, tool: "test", summary: "ok" }),
+      plugins: undefined,
+    };
+
+    const code = `await plugins.chrome_devtools.eval({ code: "1" });`;
+    const res = await execTool.handler({ code }, mockCtx);
+    assert.equal(res.ok, false);
+    assert.match(res.error || "", /No plugins are configured\. Add one in Admin → Plugins\./);
+  });
+
+  await t.test("image(res) captures images returned by plugin bridge", async () => {
+    const mockCtx = {
+      ...env.ctx,
+      callTool: async () => ({ ok: true, tool: "test", summary: "ok" }),
+      plugins: {
+        list: () => [
+          {
+            plugin: "screenshot-plugin",
+            name: "snap",
+            description: "Take snapshot",
+            inputSchema: {},
+            enabled: true,
+            published: true,
+            execAllowed: true,
+          },
+        ],
+        call: async (): Promise<ToolResult> => {
+          return {
+            ok: true,
+            tool: "screenshot-plugin.snap",
+            summary: "Snap captured",
+            images: [{ data: "pluginBase64Image", mimeType: "image/png" }],
+          };
+        },
+      },
+    };
+
+    const code = `
+      const res = await plugins.screenshot_plugin.snap({});
+      image(res);
+    `;
+
+    const res = await execTool.handler({ code }, mockCtx);
+    assert.equal(res.ok, true, res.error);
+    assert.ok(res.images && res.images.length === 1);
+    assert.equal(res.images[0].data, "pluginBase64Image");
+    assert.equal(res.images[0].mimeType, "image/png");
+  });
 });

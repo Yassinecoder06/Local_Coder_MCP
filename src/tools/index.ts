@@ -12,6 +12,7 @@ import browserTools from "./browser.js";
 import memoryTools from "./memory.js";
 import humanTools from "./human.js";
 import execTools from "./exec.js";
+import pluginTools from "./plugin-tools.js";
 
 export const ESSENTIAL_TOOLS = new Set<string>([
   "workspace_info",
@@ -35,6 +36,7 @@ export const ESSENTIAL_TOOLS = new Set<string>([
   "todo",
   "resume",
   "browser_check",
+  "plugin_tools",
   "exec",
   "ask_user",
   "user_request_status",
@@ -55,6 +57,7 @@ const modules: ToolModule[] = [
   browserTools,
   humanTools,
   execTools,
+  pluginTools,
 ];
 
 export default modules;

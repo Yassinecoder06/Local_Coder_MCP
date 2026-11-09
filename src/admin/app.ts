@@ -21,6 +21,7 @@ import toolModules from "../tools/index.js";
 import { ESSENTIAL_TOOLS } from "../mcp/server.js";
 import { getAgentMemory } from "../tools/lib/memory.js";
 import { loadRecipes } from "../plugins/recipes.js";
+import { parsePluginImport } from "../plugins/import.js";
 import {
   resolveWorkspaces,
   validateWorkspacePath,
@@ -769,6 +770,23 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }
+  });
+
+  app.post("/api/plugins/import/preview", (req: Request, res: Response) => {
+    const { text } = req.body || {};
+    if (typeof text !== "string" || !text.trim()) {
+      res.status(400).json({ error: "Missing or empty 'text' in request body" });
+      return;
+    }
+    const result = parsePluginImport(text);
+    if (!result.plugins || result.plugins.length === 0) {
+      res.status(400).json({
+        error: "Could not parse any plugin configurations from the provided text",
+        warnings: result.warnings,
+      });
+      return;
+    }
+    res.json(result);
   });
 
   app.get("/api/plugins/:id", (req: Request, res: Response) => {

@@ -20,6 +20,8 @@ export interface CodeModeOptions {
   timeoutMs?: number;
   callableTools?: Array<{ name: string; description: string }>;
   callTool: (name: string, args: Record<string, unknown>) => Promise<ToolResult>;
+  plugins?: Array<{ plugin: string; tool: string; description: string; execAllowed: boolean }>;
+  callPluginTool?: (plugin: string, tool: string, args: Record<string, unknown>) => Promise<ToolResult>;
 }
 
 export interface CodeModeSuccess {
@@ -78,10 +80,7 @@ function releaseSlot() {
   if (next) next();
 }
 
-function callTool(name, args) {
-  if (name === "exec") {
-    return Promise.reject(new Error("Recursive exec call is not allowed"));
-  }
+function dispatchCall(payload) {
   if (totalCalls >= MAX_TOOL_CALLS) {
     return Promise.reject(new Error(\`Exceeded maximum limit of \${MAX_TOOL_CALLS} tool calls in exec\`));
   }
@@ -91,14 +90,35 @@ function callTool(name, args) {
     activeCalls++;
     const id = nextCallId++;
     pendingCalls.set(id, { resolve, reject });
-    parentPort.postMessage({ type: "call_tool", id, name, args: args || {} });
+    parentPort.postMessage({ ...payload, id });
   });
   if (activeCalls < MAX_CONCURRENT_CALLS) return start();
   return new Promise((resolve, reject) => waiting.push(() => start().then(resolve, reject)));
 }
 
+function callTool(name, args) {
+  if (name === "exec") {
+    return Promise.reject(new Error("Recursive exec call is not allowed"));
+  }
+  return dispatchCall({ type: "call_tool", name, args: args || {} });
+}
+
+const hasPlugins = Boolean(workerData.hasPlugins);
+function callPlugin(plugin, tool, args) {
+  if (!hasPlugins) {
+    return Promise.reject(new Error("No plugins are configured. Add one in Admin → Plugins."));
+  }
+  return dispatchCall({ type: "call_plugin_tool", plugin, tool, args: args || {} });
+}
+
 const tools = new Proxy({}, {
   get: (_, prop) => (args) => callTool(String(prop), args || {}),
+});
+
+const plugins = new Proxy({}, {
+  get: (_, plugin) => new Proxy({}, {
+    get: (_, tool) => (args) => callPlugin(String(plugin), String(tool), args || {}),
+  }),
 });
 
 function text(value) {
@@ -128,6 +148,7 @@ function image(val) {
 }
 
 const ALL_TOOLS = workerData.allTools || [];
+const PLUGINS = workerData.plugins || [];
 
 (async () => {
   const userCode = workerData.code;
@@ -172,7 +193,7 @@ const ALL_TOOLS = workerData.allTools || [];
 
     const runner = vm.compileFunction(
       "return (async () => {\\n" + userCode + "\\n})()",
-      ["tools", "ALL_TOOLS", "text", "image"],
+      ["tools", "ALL_TOOLS", "text", "image", "plugins", "PLUGINS"],
       {
         parsingContext: sandboxContext,
         importModuleDynamically: () => {
@@ -181,7 +202,7 @@ const ALL_TOOLS = workerData.allTools || [];
       }
     );
 
-    await runner(tools, ALL_TOOLS, text, image);
+    await runner(tools, ALL_TOOLS, text, image, plugins, PLUGINS);
 
     parentPort.postMessage({
       type: "done",
@@ -223,6 +244,8 @@ export async function runCodeMode(options: CodeModeOptions): Promise<CodeModeRes
       workerData: {
         code: options.code,
         allTools: options.callableTools ?? [],
+        plugins: options.plugins ?? [],
+        hasPlugins: Boolean(options.callPluginTool),
       },
     });
 
@@ -273,6 +296,56 @@ export async function runCodeMode(options: CodeModeOptions): Promise<CodeModeRes
 
         options
           .callTool(msg.name, msg.args)
+          .then((result) => {
+            if (!resolved) {
+              worker.postMessage({ type: "tool_result", id: msg.id, result });
+            }
+          })
+          .catch((err: unknown) => {
+            if (!resolved) {
+              const msgText = err instanceof Error ? err.message : String(err);
+              worker.postMessage({ type: "tool_error", id: msg.id, error: msgText });
+            }
+          })
+          .finally(() => {
+            activeCallsCount--;
+          });
+        return;
+      }
+
+      if (msg.type === "call_plugin_tool") {
+        if (!options.callPluginTool) {
+          worker.postMessage({
+            type: "tool_error",
+            id: msg.id,
+            error: "No plugins are configured. Add one in Admin → Plugins.",
+          });
+          return;
+        }
+
+        if (totalCallsCount >= MAX_TOOL_CALLS) {
+          worker.postMessage({
+            type: "tool_error",
+            id: msg.id,
+            error: `Exceeded maximum limit of ${MAX_TOOL_CALLS} tool calls in exec`,
+          });
+          return;
+        }
+
+        if (activeCallsCount >= MAX_CONCURRENT_CALLS) {
+          worker.postMessage({
+            type: "tool_error",
+            id: msg.id,
+            error: `Exceeded limit of ${MAX_CONCURRENT_CALLS} concurrent tool calls in exec`,
+          });
+          return;
+        }
+
+        totalCallsCount++;
+        activeCallsCount++;
+
+        options
+          .callPluginTool(msg.plugin, msg.tool, msg.args)
           .then((result) => {
             if (!resolved) {
               worker.postMessage({ type: "tool_result", id: msg.id, result });
