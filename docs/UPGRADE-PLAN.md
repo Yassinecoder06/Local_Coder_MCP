@@ -47,6 +47,7 @@ we borrow the parts that fit.
    - Read-only or trust annotations from upstream are passed through, never widened.
 10. **Plugins page** [codex1]: an add dialog with recipes (Playwright MCP, Fetch, Memory, GitHub), a status pill (Ready only after discovery succeeds), and tool toggles.
 11. **Image and runtime support** [codex2]: node and uv in the image, plus a plugin cache volume.
+    - Completed: plugin tools are also available through `plugin_tools` and eligible `exec` calls on the main connector; plugin schemas are normalized, and pasted configurations have an import preview.
 
 ### Phase 4 — Safety and surfaces
 12. **Command policy** [agy2 enforcement, codex1 UI]:

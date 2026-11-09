@@ -19,6 +19,7 @@ test("plugin recipes: loader, validation, pinning, and input conversion", async 
     assert.ok(ids.includes("fetch"));
     assert.ok(ids.includes("memory"));
     assert.ok(ids.includes("github"));
+    assert.ok(ids.includes("chrome-devtools"));
 
     // Verify all IDs are unique
     assert.equal(new Set(ids).size, ids.length);
@@ -115,6 +116,32 @@ test("plugin recipes: loader, validation, pinning, and input conversion", async 
     assert.equal(gh.secrets[0].where, "header");
     assert.equal(gh.secrets[0].required, true);
     assert.equal(gh.secrets[0].prefix, "Bearer ");
+  });
+
+  await t.test("Chrome DevTools recipe configuration", async () => {
+    const recipes = await loadRecipes();
+    const chrome = recipes.find((r) => r.id === "chrome-devtools");
+    assert.ok(chrome);
+    assert.equal(chrome.name, "Chrome DevTools MCP");
+    assert.equal(chrome.homepage, "https://github.com/ChromeDevTools/chrome-devtools-mcp");
+    assert.equal(chrome.runtime, "node");
+    assert.deepEqual(chrome.secrets, []);
+    assert.equal(chrome.transport.type, "stdio");
+    if (chrome.transport.type === "stdio") {
+      assert.equal(chrome.transport.command, "npx");
+      assert.deepEqual(chrome.transport.args, [
+        "-y",
+        "chrome-devtools-mcp@1.12.0",
+        "--headless",
+        "--isolated",
+        "--executablePath",
+        "/usr/local/bin/chromium",
+        "--chromeArg=--no-sandbox",
+        "--no-usage-statistics",
+      ]);
+    }
+    assert.match(chrome.notes ?? "", /pageId from list_pages/);
+    assert.match(chrome.notes ?? "", /lighthouse_audit mode "snapshot"/);
   });
 
   await t.test("loadRecipes: detects duplicates and unpinned versions in custom directory", async () => {

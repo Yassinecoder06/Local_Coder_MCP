@@ -132,7 +132,14 @@ Built-ins: `/review`, `/test`, `/fix`, `/commit`, `/explain`, `/plan`, `/scaffol
 
 ## Plugins
 
-Plugins connect external MCP servers and publish their tools on a separate endpoint, keeping the core tool list small. Add one from **Admin → Plugins** using a recipe or a manual stdio/HTTP connection; recipes include pinned versions and setup notes. Connect clients to the second app URL, `<base>/mcp/plugins/<token>`, shown on the Connect page. The **Trusted** switch treats that plugin's tools as read-only; leave it off unless you trust the server. Secrets are masked in the admin API. Publication is capped at 256 tools and 250 KB of schemas, with 60 seconds to start, 120 seconds per call, and 2 MiB per result.
+Plugins connect external MCP servers and publish their tools through your existing main connector, including Gemini; the separate `<base>/mcp/plugins/<token>` endpoint is also available. In **Admin → Plugins**, paste any MCP config/command for a preview, or choose a pinned recipe. The Chrome DevTools recipe provides Lighthouse, performance, console, and network tools. Most of its tools need a `pageId` from `list_pages`; for the current page use Lighthouse snapshot mode:
+
+```js
+const result = await plugins["chrome-devtools"].lighthouse_audit({ pageId: 2, mode: "snapshot" });
+text(result.summary);
+```
+
+The **Trusted** switch permits non-read-only tools through `exec`; without it, only upstream read-only tools are callable from the main connector. Secrets are masked in the admin API. Publication is capped at 256 tools and 250 KB of schemas, with 60 seconds to start, 120 seconds per call, and 2 MiB per result.
 
 ## Herdr integration
 
@@ -237,6 +244,7 @@ The server can read and change files and run shell commands in mounted workspace
 - **Tool-call limit per turn reached:** this is a client-side cap. Say “continue” to resume, and batch related commands to use fewer calls.
 - **Headless Chromium crashed:** use `browser_check` for page verification. Rebuild the Docker image to install the Chromium wrapper for raw headless Chromium commands.
 - **A folder is missing from the folder picker:** it is outside `MOUNT_DIR`. Set `MOUNT_DIR` to a parent folder in `.env` and run `make up`.
+- **Gemini says check the URL for `/mcp/plugins`:** use the main connector instead; plugin schemas are normalized now.
 
 ## License
 
