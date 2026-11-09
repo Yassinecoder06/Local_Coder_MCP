@@ -11,6 +11,8 @@ export interface Settings {
   approvalMode?: "trust" | "minimal" | "standard";
   toolProfile?: "essential" | "full";
   lastWorkspace?: string;
+  workspaceRoots?: string[];
+  defaultWorkspace?: string;
 }
 
 let activeSettings: Settings = {
@@ -33,6 +35,8 @@ export function initSettings(dataDir: string, defaults?: Partial<Settings>): Set
         approvalMode: parsed.approvalMode ?? defaults?.approvalMode,
         toolProfile: parsed.toolProfile ?? defaults?.toolProfile,
         lastWorkspace: parsed.lastWorkspace ?? defaults?.lastWorkspace,
+        workspaceRoots: Array.isArray(parsed.workspaceRoots) ? parsed.workspaceRoots : defaults?.workspaceRoots,
+        defaultWorkspace: typeof parsed.defaultWorkspace === "string" ? parsed.defaultWorkspace : defaults?.defaultWorkspace,
       };
       return activeSettings;
     }
@@ -46,6 +50,8 @@ export function initSettings(dataDir: string, defaults?: Partial<Settings>): Set
     approvalMode: defaults?.approvalMode,
     toolProfile: defaults?.toolProfile,
     lastWorkspace: defaults?.lastWorkspace,
+    workspaceRoots: defaults?.workspaceRoots,
+    defaultWorkspace: defaults?.defaultWorkspace,
   };
   saveSettingsSync();
   return activeSettings;
@@ -70,6 +76,8 @@ export function getSettings(): Settings {
     approvalMode: activeSettings.approvalMode,
     toolProfile: activeSettings.toolProfile,
     lastWorkspace: activeSettings.lastWorkspace,
+    workspaceRoots: activeSettings.workspaceRoots ? [...activeSettings.workspaceRoots] : undefined,
+    defaultWorkspace: activeSettings.defaultWorkspace,
   };
 }
 
@@ -80,6 +88,8 @@ export async function updateSettings(patch: Partial<Settings>): Promise<Settings
     approvalMode: patch.approvalMode !== undefined ? patch.approvalMode : activeSettings.approvalMode,
     toolProfile: patch.toolProfile !== undefined ? patch.toolProfile : activeSettings.toolProfile,
     lastWorkspace: "lastWorkspace" in patch ? patch.lastWorkspace : activeSettings.lastWorkspace,
+    workspaceRoots: "workspaceRoots" in patch ? (patch.workspaceRoots ? [...patch.workspaceRoots] : undefined) : activeSettings.workspaceRoots,
+    defaultWorkspace: "defaultWorkspace" in patch ? patch.defaultWorkspace : activeSettings.defaultWorkspace,
   };
   saveSettingsSync();
   return getSettings();

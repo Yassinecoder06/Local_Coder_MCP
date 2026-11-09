@@ -56,7 +56,7 @@ Built-in commands in `commands/`: `review`, `test`, `fix`, `commit`, `explain`, 
 Static UI served from `web/` at `/`. No auth (bound to host loopback), but reject requests whose `Host` header isn't localhost/127.0.0.1 (DNS-rebinding guard).
 | method & path | response / body |
 |---|---|
-| `GET /api/status` | `{ version, uptimeSec, authMode, toolProfile, approvalMode, sessions, workspaceRoots, defaultWorkspace, endpoints: { local, public, mcpUrlWithToken, pluginsUrlWithToken, oauthIssuer } }` (`mcpUrlWithToken` = `<public or local>/mcp/<token>`) |
+| `GET /api/status` | `{ version, uptimeSec, authMode, toolProfile, approvalMode, sessions, workspaceRoots, defaultWorkspace, workspaceSource, mountDirs, endpoints: { local, public, mcpUrlWithToken, pluginsUrlWithToken, oauthIssuer } }` (`mcpUrlWithToken` = `<public or local>/mcp/<token>`) |
 | `GET /api/health` | `{ ok, version, uptime, mcpReachable }` (proxies MCP `/health`) |
 | `GET /api/connect` | `{ clients: ClientConnectInfo[], chatgpt: { url, steps }, gemini: { url, steps }, plugins: { url }, token }` (client connection info and snippets for ChatGPT, Gemini, Claude, Claude Code, Cursor, VS Code, Gemini CLI, Codex CLI, and generic MCP clients) |
 | `POST /api/token/rotate` | `{ token }` (persist to DATA_DIR/token, invalidates OAuth tokens) |
@@ -80,6 +80,9 @@ Static UI served from `web/` at `/`. No auth (bound to host loopback), but rejec
 | `DELETE /api/plugins/:id` | 204 |
 | `POST /api/plugins/:id/restart` | `PluginSummary` |
 | `PATCH /api/plugins/:id/tools/:tool` | body `{ enabled }` → `PluginTool` |
+| `PUT /api/workspaces` | body `{ roots: string[], defaultWorkspace?: string }` → `{ roots, defaultWorkspace, source }` |
+| `DELETE /api/workspaces` | `{ roots, defaultWorkspace, source }` (resets to env) |
+| `GET /api/fs/dirs?path=` | `{ path, parent?, dirs: { name, path, isGitRepo }[] }` |
 Errors: `{ error: string }` with 4xx/5xx.
 
 ## Environment (codex2 documents in .env.example; parsed only in src/config.ts)

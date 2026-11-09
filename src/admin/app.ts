@@ -21,6 +21,11 @@ import toolModules from "../tools/index.js";
 import { ESSENTIAL_TOOLS } from "../mcp/server.js";
 import { getAgentMemory } from "../tools/lib/memory.js";
 import { loadRecipes } from "../plugins/recipes.js";
+import {
+  resolveWorkspaces,
+  validateWorkspacePath,
+  validateDefaultWorkspace,
+} from "../core/workspace.js";
 
 export interface ClientConnectInfo {
   id: string;
@@ -90,6 +95,7 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
     const publicUrl = await resolvePublicUrl(deps.config);
     const localUrl = getLocalBaseUrl(deps.config);
     const settings = getSettings();
+    const effectiveWs = resolveWorkspaces(deps.config, settings);
     const effectiveBase = publicUrl || localUrl;
     const integrations = await detectIntegrations();
     const openRequests = deps.board ? (await deps.board.listRequests({ status: "open" })).length : 0;
@@ -101,8 +107,10 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
       toolProfile: settings.toolProfile ?? deps.config.toolProfile,
       approvalMode: settings.approvalMode ?? deps.config.approvalMode,
       sessions: deps.sessionManager.count(),
-      workspaceRoots: deps.config.workspaceRoots,
-      defaultWorkspace: deps.config.defaultWorkspace,
+      workspaceRoots: effectiveWs.roots,
+      defaultWorkspace: effectiveWs.defaultWorkspace,
+      workspaceSource: effectiveWs.source,
+      mountDirs: deps.config.mountDirs ?? [],
       lastWorkspace: settings.lastWorkspace,
       integrations,
       openRequests,
@@ -690,10 +698,11 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
   app.get("/api/plan", async (req: Request, res: Response) => {
     try {
       const settings = getSettings();
+      const effectiveWs = resolveWorkspaces(deps.config, settings);
       const workspace =
         (req.query.workspace ? String(req.query.workspace) : undefined) ||
         settings.lastWorkspace ||
-        deps.config.defaultWorkspace;
+        effectiveWs.defaultWorkspace;
       const memory = await getAgentMemory(deps.config.dataDir, workspace);
       res.json({
         workspace,
@@ -855,6 +864,192 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
       res.json(updatedTool);
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // 11. Workspaces API
+  app.put("/api/workspaces", async (req: Request, res: Response) => {
+    try {
+      const { roots, defaultWorkspace } = req.body || {};
+      if (!Array.isArray(roots) || roots.length === 0) {
+        res.status(400).json({ error: "At least one workspace root is required in 'roots'." });
+        return;
+      }
+
+      const allowedAreas = deps.config.allowedRootAreas ?? deps.config.workspaceRoots ?? [];
+      const validatedRoots: string[] = [];
+
+      for (const r of roots) {
+        if (!r || typeof r !== "string" || !r.trim()) {
+          res.status(400).json({ error: "Workspace root path cannot be empty." });
+          return;
+        }
+        const validated = validateWorkspacePath(r.trim(), allowedAreas);
+        validatedRoots.push(validated);
+      }
+
+      let validatedDefault: string;
+      if (defaultWorkspace !== undefined && defaultWorkspace !== null && typeof defaultWorkspace === "string" && defaultWorkspace.trim()) {
+        validatedDefault = validateDefaultWorkspace(defaultWorkspace.trim(), validatedRoots);
+      } else {
+        validatedDefault = validatedRoots[0];
+      }
+
+      await updateSettings({
+        workspaceRoots: validatedRoots,
+        defaultWorkspace: validatedDefault,
+      });
+
+      await deps.sessionManager.applyWorkspacesLive();
+
+      res.json({
+        roots: validatedRoots,
+        defaultWorkspace: validatedDefault,
+        source: "settings",
+      });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.delete("/api/workspaces", async (_req: Request, res: Response) => {
+    try {
+      await updateSettings({
+        workspaceRoots: undefined,
+        defaultWorkspace: undefined,
+      });
+
+      await deps.sessionManager.applyWorkspacesLive();
+
+      const effective = resolveWorkspaces(deps.config, getSettings());
+      res.json({
+        roots: effective.roots,
+        defaultWorkspace: effective.defaultWorkspace,
+        source: "env",
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // 12. Filesystem Browsing API (for folder picker)
+  app.get("/api/fs/dirs", (req: Request, res: Response) => {
+    try {
+      const allowedAreas = deps.config.allowedRootAreas ?? deps.config.workspaceRoots ?? [];
+      const effective = resolveWorkspaces(deps.config, getSettings());
+
+      const requestedPath = req.query.path ? String(req.query.path).trim() : "";
+      const targetPath = requestedPath
+        ? path.resolve(requestedPath)
+        : (deps.config.mountDirs?.[0] ?? effective.roots[0]);
+
+      if (!fs.existsSync(targetPath)) {
+        res.status(400).json({ error: `Directory does not exist: ${targetPath}` });
+        return;
+      }
+      let stat: fs.Stats;
+      try {
+        stat = fs.statSync(targetPath);
+      } catch {
+        res.status(400).json({ error: `Cannot access directory: ${targetPath}` });
+        return;
+      }
+      if (!stat.isDirectory()) {
+        res.status(400).json({ error: `Path is not a directory: ${targetPath}` });
+        return;
+      }
+
+      // Check if targetPath is inside allowed areas
+      const realTarget = fs.realpathSync(targetPath);
+      const isTargetAllowed = allowedAreas.some((area) => {
+        let realArea = path.resolve(area);
+        try { realArea = fs.realpathSync(realArea); } catch {}
+        return realTarget === realArea || realTarget.startsWith(realArea.endsWith(path.sep) ? realArea : realArea + path.sep);
+      });
+
+      if (!isTargetAllowed) {
+        res.status(400).json({ error: `Path '${targetPath}' is outside the allowed mount areas.` });
+        return;
+      }
+
+      // Determine parent if parent is inside allowed areas
+      let parent: string | undefined;
+      const parentCandidate = path.dirname(targetPath);
+      if (parentCandidate !== targetPath) {
+        try {
+          const realParent = fs.realpathSync(parentCandidate);
+          const isParentAllowed = allowedAreas.some((area) => {
+            let realArea = path.resolve(area);
+            try { realArea = fs.realpathSync(realArea); } catch {}
+            return realParent === realArea || realParent.startsWith(realArea.endsWith(path.sep) ? realArea : realArea + path.sep);
+          });
+          if (isParentAllowed) {
+            parent = parentCandidate;
+          }
+        } catch {}
+      }
+
+      // Read directory entries
+      let entries: fs.Dirent[] = [];
+      try {
+        entries = fs.readdirSync(targetPath, { withFileTypes: true });
+      } catch (readErr) {
+        res.status(400).json({ error: `Failed to read directory: ${readErr instanceof Error ? readErr.message : String(readErr)}` });
+        return;
+      }
+
+      const dirs: { name: string; path: string; isGitRepo: boolean }[] = [];
+
+      for (const entry of entries) {
+        if (entry.name.startsWith(".") || entry.name === "node_modules") {
+          continue;
+        }
+
+        const fullPath = path.join(targetPath, entry.name);
+        let isDir = false;
+        let realEntryPath = "";
+        try {
+          const st = fs.statSync(fullPath);
+          isDir = st.isDirectory();
+          if (isDir) {
+            realEntryPath = fs.realpathSync(fullPath);
+          }
+        } catch {
+          continue;
+        }
+
+        if (!isDir) continue;
+
+        // Check if inside allowed areas
+        const isEntryAllowed = allowedAreas.some((area) => {
+          let realArea = path.resolve(area);
+          try { realArea = fs.realpathSync(realArea); } catch {}
+          return realEntryPath === realArea || realEntryPath.startsWith(realArea.endsWith(path.sep) ? realArea : realArea + path.sep);
+        });
+
+        if (!isEntryAllowed) continue;
+
+        const isGitRepo = fs.existsSync(path.join(fullPath, ".git"));
+        dirs.push({
+          name: entry.name,
+          path: fullPath,
+          isGitRepo,
+        });
+
+        if (dirs.length >= 500) {
+          break;
+        }
+      }
+
+      dirs.sort((a, b) => a.name.localeCompare(b.name));
+
+      res.json({
+        path: targetPath,
+        parent,
+        dirs,
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 

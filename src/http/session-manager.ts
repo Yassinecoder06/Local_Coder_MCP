@@ -16,7 +16,7 @@ import type { ActivityLog } from "../core/activity.js";
 import type { Board } from "../core/board.js";
 import type { CommandRegistry } from "../commands/registry.js";
 import type { SkillRegistry } from "../skills/registry.js";
-import { createWorkspace, resolveInitialWorkspace } from "../core/workspace.js";
+import { createWorkspace, resolveInitialWorkspace, resolveWorkspaces } from "../core/workspace.js";
 import type { ToolContext, ToolRisk } from "../core/types.js";
 import { annotationsFor, type ApprovalMode } from "../core/annotations.js";
 import { getSettings, updateSettings } from "../core/settings.js";
@@ -132,6 +132,25 @@ export class SessionManager {
     }
   }
 
+  public async applyWorkspacesLive(): Promise<void> {
+    const effective = resolveWorkspaces(this.deps.config, getSettings());
+    for (const session of this.sessions.values()) {
+      const ws = session.context.workspace as any;
+      if (ws.updateRoots) {
+        ws.updateRoots(effective.roots, effective.defaultWorkspace);
+      }
+      try {
+        const newInstructions = await buildInstructions(session.context);
+        const s = session.server as any;
+        if (s.server) s.server._instructions = newInstructions;
+        else s._instructions = newInstructions;
+      } catch {}
+      try {
+        (session.server as any).sendToolListChanged();
+      } catch {}
+    }
+  }
+
   public notifyToolListChanged(newInstructions?: string): void {
     for (const session of this.sessions.values()) {
       if (newInstructions !== undefined) {
@@ -146,16 +165,22 @@ export class SessionManager {
   public async buildSession(forcedSessionId?: string, clientInfo?: { name: string; version: string }): Promise<McpSession> {
     const sessionId = forcedSessionId || crypto.randomUUID();
     const settings = getSettings();
+    const effective = resolveWorkspaces(this.deps.config, settings);
     const initialWorkspace = resolveInitialWorkspace(
-      this.deps.config.workspaceRoots,
-      this.deps.config.defaultWorkspace,
+      effective.roots,
+      effective.defaultWorkspace,
       settings.lastWorkspace
     );
-    const workspace = createWorkspace(this.deps.config.workspaceRoots, initialWorkspace, (newActive) => {
-      void updateSettings({ lastWorkspace: newActive }).catch((err) => {
-        console.warn("[workspace] Failed to persist lastWorkspace:", err);
-      });
-    });
+    const workspace = createWorkspace(
+      effective.roots,
+      initialWorkspace,
+      (newActive) => {
+        void updateSettings({ lastWorkspace: newActive }).catch((err) => {
+          console.warn("[workspace] Failed to persist lastWorkspace:", err);
+        });
+      },
+      () => resolveWorkspaces(this.deps.config, getSettings()).roots
+    );
     const context: ToolContext = {
       config: this.deps.config,
       workspace,
