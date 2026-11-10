@@ -6,7 +6,7 @@ import os from "node:os";
 import { createTestEnvironment } from "./helpers.js";
 import { editFilesTool } from "../src/tools/files.js";
 import { runTool } from "../src/tools/shell.js";
-import { detectChecks, parseCheckErrors } from "../src/tools/lib/verify.js";
+import { detectChecks, noChecksMessage, parseCheckErrors } from "../src/tools/lib/verify.js";
 import { runDiagnostics } from "../src/tools/lib/diagnostics.js";
 
 test("diagnostics: syntax and integrity checks on edit", async (t) => {
@@ -154,6 +154,44 @@ test("verify: auto-detection and execution", async (t) => {
     ]);
   });
 
+  await t.test("prefers the verify script and runs only that script", async () => {
+    const projectDir = path.join(tmpRoot, "verify-script-project");
+    await fs.mkdir(projectDir, { recursive: true });
+    await fs.writeFile(path.join(projectDir, "package.json"), JSON.stringify({ scripts: {
+      verify: "echo preferred-verify", test: "echo should-not-run", build: "echo also-not-run",
+    } }));
+    assert.deepEqual(await detectChecks(projectDir), [{ name: "verify", command: "npm run verify" }]);
+    const env = await createTestEnvironment();
+    t.after(async () => { await env.cleanup(); });
+    await fs.writeFile(path.join(env.workspaceDir, "package.json"), JSON.stringify({ scripts: {
+      verify: "echo preferred-verify", test: "echo should-not-run",
+    } }));
+    const result = await runTool.handler({ verify: true }, env.ctx);
+    assert.equal(result.data.checks.length, 1);
+    assert.equal(result.data.checks[0].name, "verify");
+    assert.match(result.data.checks[0].tail, /preferred-verify/);
+  });
+
+  await t.test("suggests child project cwd when no checks are found", async () => {
+    const parent = path.join(tmpRoot, "parent-workspace");
+    const child = path.join(parent, "client-app");
+    await fs.mkdir(child, { recursive: true });
+    await fs.writeFile(path.join(child, "package.json"), JSON.stringify({ scripts: { test: "echo ok" } }));
+    assert.deepEqual(await detectChecks(parent), []);
+    const message = await noChecksMessage(parent);
+    assert.match(message, new RegExp(`in '${parent}'`));
+    assert.match(message, /Did you mean cwd: 'client-app'/);
+
+    const env = await createTestEnvironment();
+    t.after(async () => { await env.cleanup(); });
+    const workspaceChild = path.join(env.workspaceDir, "client-app");
+    await fs.mkdir(workspaceChild);
+    await fs.writeFile(path.join(workspaceChild, "package.json"), JSON.stringify({ scripts: { test: "echo ok" } }));
+    const result = await runTool.handler({ verify: true }, env.ctx);
+    assert.match(result.summary, new RegExp(`in '${env.workspaceDir}'`));
+    assert.match(result.summary, /Did you mean cwd: 'client-app'/);
+  });
+
   await t.test("detects Makefile test target", async () => {
     const projectDir = path.join(tmpRoot, "make-project");
     await fs.mkdir(projectDir, { recursive: true });
@@ -239,6 +277,18 @@ test("verify: auto-detection and execution", async (t) => {
     assert.ok(failedCheck.errors.length > 0);
     assert.equal(failedCheck.errors[0].file, "src/math.ts");
     assert.equal(failedCheck.errors[0].line, 15);
+  });
+
+  await t.test("explains missing npm dependencies when checks fail without node_modules", async () => {
+    const env = await createTestEnvironment();
+    t.after(async () => { await env.cleanup(); });
+    await fs.writeFile(path.join(env.workspaceDir, "package.json"), JSON.stringify({
+      scripts: { test: "local-check-command-that-does-not-exist" },
+    }));
+    const result = await runTool.handler({ verify: true }, env.ctx);
+    assert.equal(result.data.ok, false);
+    assert.match(result.summary, /dependencies not installed — run npm install/);
+    assert.match(result.data.checks[0].tail, /dependencies not installed — run npm install/);
   });
 });
 

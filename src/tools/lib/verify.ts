@@ -25,7 +25,7 @@ export interface CheckResult {
 /**
  * Auto-detect validation checks for a workspace.
  * Priority:
- * 1. package.json scripts: typecheck, lint, test, build (in that order)
+ * 1. package.json scripts.verify (alone), then typecheck, lint, test, build
  * 2. Makefile test
  * 3. pyproject.toml / pytest.ini / setup.py -> pytest
  * 4. Cargo.toml -> cargo test
@@ -40,6 +40,9 @@ export async function detectChecks(workspaceRoot: string): Promise<CheckDefiniti
     const content = await fs.readFile(pkgPath, "utf-8");
     const pkg = JSON.parse(content);
     if (pkg.scripts && typeof pkg.scripts === "object") {
+      if (typeof pkg.scripts.verify === "string" && pkg.scripts.verify.trim().length > 0) {
+        return [{ name: "verify", command: "npm run verify" }];
+      }
       const order = ["typecheck", "lint", "test", "build"];
       for (const script of order) {
         if (typeof pkg.scripts[script] === "string" && pkg.scripts[script].trim().length > 0) {
@@ -99,6 +102,31 @@ export async function detectChecks(workspaceRoot: string): Promise<CheckDefiniti
   } catch {}
 
   return checks;
+}
+
+/** Explain where detection looked and suggest nearby project roots when it was run one level too high. */
+export async function noChecksMessage(workspaceRoot: string): Promise<string> {
+  const children: string[] = [];
+  try {
+    const entries = await fs.readdir(workspaceRoot, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith(".") || entry.name === "node_modules") continue;
+      const childPath = path.join(workspaceRoot, entry.name);
+      for (const marker of ["package.json", "pyproject.toml", "Cargo.toml", "go.mod"]) {
+        try {
+          await fs.access(path.join(childPath, marker));
+          children.push(entry.name);
+          break;
+        } catch { /* check the next marker */ }
+      }
+      if (children.length >= 5) break;
+    }
+  } catch { /* report the workspace even if it cannot be listed */ }
+
+  const suggestions = children.length
+    ? ` Did you mean cwd: ${children.map((child) => `'${child}'`).join(", ")}?`
+    : "";
+  return `No verification checks detected in '${workspaceRoot}'.${suggestions}`;
 }
 
 /**

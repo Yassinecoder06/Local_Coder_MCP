@@ -1,9 +1,11 @@
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { defineTool, type ToolModule } from "../core/types.js";
 import { ok, fail } from "../core/result.js";
 import { jobManager, type RunResult } from "./lib/jobs.js";
-import { detectChecks, parseCheckErrors, type CheckResult } from "./lib/verify.js";
+import { detectChecks, noChecksMessage, parseCheckErrors, type CheckResult } from "./lib/verify.js";
 
 export const BROWSER_CHECK_TIP =
   "Tip: use browser_check for headless browser checks (screenshot + console); raw Chromium may crash in the container.";
@@ -20,6 +22,12 @@ function shellQuote(value: string): string {
 function utf8Prefix(buffer: Buffer, maxBytes: number): string {
   let text = buffer.subarray(0, Math.max(0, maxBytes)).toString("utf-8");
   while (Buffer.byteLength(text, "utf-8") > maxBytes) text = text.slice(0, -1);
+  return text;
+}
+
+function utf8Tail(value: string, maxBytes: number): string {
+  let text = Buffer.from(value, "utf-8").subarray(-maxBytes).toString("utf-8");
+  while (Buffer.byteLength(text, "utf-8") > maxBytes) text = text.slice(1);
   return text;
 }
 
@@ -48,11 +56,15 @@ function batchItems(
   commands: string[],
   capturedOutput: string,
   maxOutputBytes: number,
-  stopOnError: boolean
-): { cmd: string; exitCode: number | null; output: string; truncated?: boolean; skipped?: boolean }[] {
+  stopOnError: boolean,
+  running = false,
+  jobId?: string,
+  captureTruncated = false
+): { cmd: string; exitCode: number | null; output: string; status: string; truncated?: boolean; skipped?: boolean }[] {
   let remainingBytes = Math.max(0, maxOutputBytes);
   let stopped = false;
   let cursor = 0;
+  let runningIndex: number | null = null;
 
   return commands.map((cmd, index) => {
     const label = `[${index + 1}/${commands.length}] $ ${cmd}`;
@@ -62,9 +74,21 @@ function batchItems(
 
     if (beginAt < 0) {
       if (stopped) {
-        return { cmd, exitCode: null, output: "Skipped because stop_on_error was set.", skipped: true };
+        return { cmd, exitCode: null, output: "Skipped because stop_on_error was set.", status: "skipped", skipped: true };
       }
-      return { cmd, exitCode: null, output: "Output unavailable (the batch stopped or exceeded the capture limit).", truncated: true };
+      if (captureTruncated && runningIndex === null) {
+        return { cmd, exitCode: null, output: "Output unavailable because the job output ring buffer was exceeded.", status: "unknown (output capture limit)", truncated: true };
+      }
+      if (running && runningIndex === null) {
+        runningIndex = index + 1;
+        return {
+          cmd, exitCode: null,
+          output: `running (index ${index + 1}) in job ${jobId}`,
+          status: `running (index ${index + 1}) in job ${jobId}`,
+        };
+      }
+      if (running && runningIndex !== null) return { cmd, exitCode: null, output: "pending", status: "pending" };
+      return { cmd, exitCode: null, output: "Output unavailable (the batch stopped or exceeded the capture limit).", status: "unavailable", truncated: true };
     }
 
     const endLineAt = exitAt < 0 ? -1 : capturedOutput.indexOf("\n", exitAt);
@@ -72,13 +96,15 @@ function batchItems(
       const outputBytes = Buffer.from(capturedOutput.slice(beginAt), "utf-8");
       const output = utf8Prefix(outputBytes, remainingBytes);
       remainingBytes = Math.max(0, remainingBytes - Buffer.byteLength(output, "utf-8"));
-      return { cmd, exitCode: null, output, truncated: true };
+      const status = running ? `running (index ${index + 1}) in job ${jobId}` : "incomplete";
+      if (running) runningIndex = index + 1;
+      return { cmd, exitCode: null, output, status, truncated: true };
     }
 
     const statusText = capturedOutput.slice(exitAt + exitLabel.length, endLineAt);
     const exitCode = Number(statusText);
     if (!Number.isInteger(exitCode)) {
-      return { cmd, exitCode: null, output: "Output unavailable (the batch output was truncated).", truncated: true };
+      return { cmd, exitCode: null, output: "Output unavailable (the batch output was truncated).", status: "unavailable", truncated: true };
     }
     if (stopOnError && exitCode !== 0) stopped = true;
 
@@ -88,14 +114,14 @@ function batchItems(
     const output = utf8Prefix(outputBytes, remainingBytes);
     remainingBytes = Math.max(0, remainingBytes - Buffer.byteLength(output, "utf-8"));
     cursor = outputEnd;
-    return { cmd, exitCode, output, ...(truncated ? { truncated: true } : {}) };
+    return { cmd, exitCode, output, status: "completed", ...(truncated ? { truncated: true } : {}) };
   });
 }
 
 export const runTool = defineTool({
   name: "run",
   title: "Run Shell Command",
-  description: "Run one bash command or batch 1–20 commands in one shell with cmds; batched commands share directory and environment changes and report a separate exit code. Longer processes continue in background as jobs. Use verify:true after changes, and stop_job_id to terminate a job.",
+  description: "Run one bash command or batch 1–20 commands in one shell with cmds; batched commands share directory and environment changes and report a separate exit code. Use service for dev servers; never use nohup or shell backgrounding (&). Other long commands continue as jobs. Use verify:true after changes, and stop_job_id to terminate a job.",
   group: "shell",
   risk: "exec",
   input: {
@@ -136,6 +162,8 @@ export const runTool = defineTool({
       .int()
       .optional()
       .describe("Command timeout limit in milliseconds"),
+    service: z.string().min(1).max(80).optional().describe("Name for a persistent long-running service; starting an existing name replaces that service"),
+    port: z.number().int().min(1).max(65535).optional().describe("Optional local TCP port to watch for service readiness"),
   },
   handler: async (args, ctx) => {
     try {
@@ -146,6 +174,25 @@ export const runTool = defineTool({
           stopped,
         });
       }
+
+      if (args.service !== undefined) {
+        if (!args.command) return fail("run", "command is required when starting a service");
+        if (args.cmds || args.verify) return fail("run", "service cannot be combined with cmds or verify:true");
+        const cwd = ctx.workspace.resolve(args.cwd);
+        const serviceWaitMs = Math.max(0, Math.min(2700, (ctx.callBudgetMs ?? 3200) - 500));
+        const service = await jobManager.startService(args.service, args.command, cwd, args.port, serviceWaitMs);
+        return ok("run", `Service "${args.service}" ${service.running ? "started" : `exited (code ${service.exitCode})`}`, {
+          service: args.service,
+          command: service.command,
+          cwd: ctx.workspace.display(cwd),
+          pid: service.pid,
+          running: service.running,
+          exit_code: service.exitCode,
+          port: service.port ?? null,
+          output: service.outputBuffer.join(""),
+        });
+      }
+      if (args.port !== undefined) return fail("run", "port can only be used with service");
 
       if (args.command !== undefined && args.cmds !== undefined) {
         return fail("run", "Provide exactly one of command or cmds, not both");
@@ -158,9 +205,10 @@ export const runTool = defineTool({
         const detected = await detectChecks(cwd);
 
         if (detected.length === 0) {
-          return ok("run", "No verification checks detected for this workspace", {
+          const message = await noChecksMessage(cwd);
+          return ok("run", message, {
             checks: [],
-            summary: "No verification checks detected",
+            summary: message,
             ok: true,
           });
         }
@@ -187,7 +235,14 @@ export const runTool = defineTool({
           const output = jobRes.output || "";
           const errors = parseCheckErrors(output);
           const lines = output.trim().split("\n");
-          const tail = lines.slice(-20).join("\n");
+          let tail = lines.slice(-20).join("\n");
+          let missingDeps = false;
+          if (!isOk && check.command.startsWith("npm ") &&
+            /not found|not recognized|cannot find module|cannot find package|module not found|missing script dependency/i.test(output)) {
+            try { await fs.access(path.join(cwd, "node_modules")); }
+            catch { missingDeps = true; }
+          }
+          if (missingDeps) tail += `${tail ? "\n" : ""}dependencies not installed — run npm install`;
 
           results.push({
             name: check.name,
@@ -219,7 +274,7 @@ export const runTool = defineTool({
         const summary =
           failed.length === 0
             ? `All ${results.length} checks passed`
-            : `${failed.length} of ${results.length} failed: ${failed.map((f) => f.name).join(", ")}`;
+            : `${failed.length} of ${results.length} failed: ${failed.map((f) => f.name).join(", ")}${results.some((r) => r.tail.includes("dependencies not installed — run npm install")) ? "; dependencies not installed — run npm install" : ""}`;
 
         return ok("run", summary, {
           checks: results,
@@ -236,11 +291,11 @@ export const runTool = defineTool({
         const timeoutMs = args.timeout_ms ?? ctx.config.shellTimeoutMs;
         const stopOnError = args.stop_on_error ?? false;
         const command = buildBatchCommand(args.cmds, stopOnError, randomUUID().replace(/-/g, ""));
-        const result = await jobManager.startJob(command, cwd, syncMs, timeoutMs);
-        const items = batchItems(args.cmds, result.output, ctx.config.maxOutputBytes, stopOnError);
+        const result = await jobManager.startJob(command, cwd, syncMs, timeoutMs, { commands: args.cmds, stopOnError });
+        const items = batchItems(args.cmds, result.output, ctx.config.maxOutputBytes, stopOnError, result.running, result.job_id, result.output_truncated);
         const isDirectBrowser = args.cmds.some((item) => DIRECT_BROWSER_RE.test(item));
         let summary = result.running
-          ? `Command batch is running in background (job_id: ${result.job_id})`
+          ? `Command batch is running in background (job_id: ${result.job_id}); ${items.map((item, i) => `${i + 1}: ${item.status}`).join("; ")}`
           : result.exit_code === 0
             ? "Command batch completed successfully (exit code 0)"
             : `Command batch completed with exit code ${result.exit_code}`;
@@ -319,17 +374,19 @@ export const runTool = defineTool({
 export const jobTool = defineTool({
   name: "job",
   title: "Background Job Status",
-  description: "Check status, read full or new output, send input to an interactive job, or list jobs. Use 'stdin' to write input and optionally wait for output, or 'poll' to wait for new output; waits return early when output arrives.",
+  description: "Check jobs and named services, read logs, send input, poll for new output, stop jobs or services, and restart services. Use services to list persistent dev servers and logs with either a service name or job_id.",
   group: "shell",
   risk: "read",
   input: {
     action: z
-      .enum(["status", "output", "list", "stdin", "poll"])
+      .enum(["status", "output", "list", "stdin", "poll", "services", "logs", "stop", "restart"])
       .default("status")
       .optional()
-      .describe("Action: status, full output, list, send stdin, or poll for new output"),
-    job_id: z.string().optional().describe("Job ID (required for status, output, stdin, and poll)"),
+      .describe("Action: status, output, list, stdin, poll, services, logs, stop, or restart"),
+    job_id: z.string().optional().describe("Job ID for job actions, or as the stop target"),
+    service: z.string().optional().describe("Named service for logs, stop, or restart"),
     limit: z.number().int().optional().describe("Maximum output bytes to return for output action"),
+    lines: z.number().int().min(1).max(1000).optional().describe("Number of recent log lines to return (default 100)"),
     input: z.string().optional().describe("Text to write to the job's stdin (required for stdin; include a newline when appropriate)"),
     wait_ms: z.number().int().min(0).max(10_000).optional().describe("Wait up to 10 seconds for new output (stdin and poll actions)"),
   },
@@ -342,13 +399,62 @@ export const jobTool = defineTool({
         return ok("job", `Active/recent background jobs: ${jobs.length}`, { jobs });
       }
 
+      if (action === "services") {
+        const services = await jobManager.listServices();
+        return ok("job", `Named services: ${services.length}`, { services });
+      }
+
+      if (action === "logs") {
+        if (args.service) {
+          const service = jobManager.getService(args.service);
+          if (!service) return fail("job", `Service "${args.service}" not found`);
+          const logs = jobManager.getServiceOutput(args.service, args.lines ?? 100);
+          return ok("job", `Logs for service "${args.service}" (${service.running ? "running" : `exit code ${service.exitCode}`}):\n${utf8Tail(logs, 8192)}`, {
+            service: args.service, running: service.running, exit_code: service.exitCode, output: logs,
+          });
+        }
+        if (!args.job_id) return fail("job", "service or job_id is required for logs action");
+        const job = jobManager.getJob(args.job_id);
+        if (!job) return fail("job", `Job "${args.job_id}" not found`);
+        const logs = jobManager.getJobOutput(args.job_id).split(/\r?\n/).slice(-(args.lines ?? 100)).join("\n");
+        return ok("job", `Logs for job ${args.job_id} (${job.running ? "running" : `exit code ${job.exitCode}`}):\n${utf8Tail(logs, 8192)}`, {
+          job_id: args.job_id, running: job.running, exit_code: job.exitCode, output: logs,
+        });
+      }
+
+      if (action === "stop") {
+        if (args.service) {
+          const stopped = jobManager.stopService(args.service);
+          return ok("job", `${stopped ? "Stopped" : "Service was not running:"} service "${args.service}"`, { service: args.service, stopped });
+        }
+        if (!args.job_id) return fail("job", "service or job_id is required for stop action");
+        const stopped = jobManager.stopJob(args.job_id);
+        return ok("job", `${stopped ? "Stopped" : "Job was not running:"} job ${args.job_id}`, { job_id: args.job_id, stopped });
+      }
+
+      if (action === "restart") {
+        if (!args.service) return fail("job", "service is required for restart action");
+        const current = jobManager.getService(args.service);
+        if (!current) return fail("job", `Service "${args.service}" not found`);
+        const serviceWaitMs = Math.max(0, Math.min(2700, (ctx.callBudgetMs ?? 3200) - 500));
+        const restarted = await jobManager.startService(current.name, current.command, current.cwd, current.port, serviceWaitMs);
+        return ok("job", `Service "${restarted.name}" ${restarted.running ? "restarted" : `exited (code ${restarted.exitCode})`}`, {
+          service: restarted.name, pid: restarted.pid, running: restarted.running,
+          exit_code: restarted.exitCode, port: restarted.port ?? null, output: restarted.outputBuffer.join(""),
+        });
+      }
+
       if (!args.job_id) return fail("job", `job_id is required for ${action} action`);
 
       if (action === "status") {
         const job = jobManager.getJob(args.job_id);
         if (!job) return fail("job", `Job "${args.job_id}" not found`);
+        const batchProgress = jobManager.batchProgress(args.job_id);
+        const batchSummary = batchProgress
+          ? `; batch current index ${batchProgress.current_index ?? "none"}: ${batchProgress.commands.map((item) => `${item.index} ${item.status}${item.exit_code === null ? "" : ` (exit ${item.exit_code})`}`).join("; ")}`
+          : "";
 
-        return ok("job", `Job ${args.job_id}: ${job.running ? "running" : `finished (code ${job.exitCode})`}`, {
+        return ok("job", `Job ${args.job_id}: ${job.running ? "running" : `finished (code ${job.exitCode})`}${batchSummary}`, {
           job_id: job.id,
           command: job.command,
           cwd: ctx.workspace.display(job.cwd),
@@ -359,6 +465,7 @@ export const jobTool = defineTool({
           signal: job.signal,
           pid: job.pid,
           output_bytes: job.totalBytes,
+          batch_progress: batchProgress,
         });
       }
 
@@ -382,11 +489,24 @@ export const jobTool = defineTool({
 
         const output = await jobManager.waitForNewOutput(args.job_id, args.wait_ms ?? 0);
         const job = jobManager.getJob(args.job_id);
-        return ok("job", `${action === "stdin" ? "Input sent to" : "Polled"} job ${args.job_id}`, {
+        const elapsed = job?.startedAt ? Math.max(0, Math.floor((Date.now() - Date.parse(job.startedAt)) / 1000)) : 0;
+        const boundedOutput = utf8Tail(output, 8192);
+        const completion = job && !job.running ? `\nJob finished (exit code ${job.exitCode})` : "";
+        let summary = boundedOutput
+          ? `${action === "stdin" ? `Input sent to job ${args.job_id}. ` : ""}New output from job ${args.job_id}:\n${boundedOutput}${completion}`
+          : job?.running
+            ? `${action === "stdin" ? `Input sent to job ${args.job_id}; ` : ""}no new output yet (running ${elapsed}s)`
+            : `Job ${args.job_id} finished (exit code ${job?.exitCode ?? null}); no new output`;
+        const batchProgress = jobManager.batchProgress(args.job_id);
+        if (batchProgress) {
+          summary += `\nBatch current index ${batchProgress.current_index ?? "none"}: ${batchProgress.commands.map((item) => `${item.index} ${item.status}${item.exit_code === null ? "" : ` (exit ${item.exit_code})`}`).join("; ")}`;
+        }
+        return ok("job", summary, {
           job_id: args.job_id,
           running: job?.running ?? false,
           exit_code: job?.exitCode ?? null,
           output,
+          batch_progress: batchProgress,
         });
       }
 
