@@ -153,7 +153,7 @@ export const runTool = defineTool({
 
       if (args.verify && !args.command && !args.cmds) {
         const cwd = ctx.workspace.resolve(args.cwd);
-        const syncMs = ctx.config.shellSyncMs;
+        const syncMs = ctx.callBudgetMs ? Math.min(ctx.config.shellSyncMs, ctx.callBudgetMs) : ctx.config.shellSyncMs;
         const timeoutMs = args.timeout_ms ?? ctx.config.shellTimeoutMs;
         const detected = await detectChecks(cwd);
 
@@ -232,7 +232,7 @@ export const runTool = defineTool({
         if (args.verify) return fail("run", "verify:true cannot be combined with cmds");
 
         const cwd = ctx.workspace.resolve(args.cwd);
-        const syncMs = ctx.config.shellSyncMs;
+        const syncMs = ctx.callBudgetMs ? Math.min(ctx.config.shellSyncMs, ctx.callBudgetMs) : ctx.config.shellSyncMs;
         const timeoutMs = args.timeout_ms ?? ctx.config.shellTimeoutMs;
         const stopOnError = args.stop_on_error ?? false;
         const command = buildBatchCommand(args.cmds, stopOnError, randomUUID().replace(/-/g, ""));
@@ -266,7 +266,7 @@ export const runTool = defineTool({
       }
 
       const cwd = ctx.workspace.resolve(args.cwd);
-      const syncMs = ctx.config.shellSyncMs;
+      const syncMs = ctx.callBudgetMs ? Math.min(ctx.config.shellSyncMs, ctx.callBudgetMs) : ctx.config.shellSyncMs;
       const timeoutMs = args.timeout_ms ?? ctx.config.shellTimeoutMs;
 
       const isDirectBrowser = args.command ? DIRECT_BROWSER_RE.test(args.command) : false;
@@ -380,7 +380,8 @@ export const jobTool = defineTool({
           if (!written) return fail("job", `Job "${args.job_id}" is not running or no longer accepts input`);
         }
 
-        const output = await jobManager.waitForNewOutput(args.job_id, args.wait_ms ?? 0);
+        const waitMs = ctx.callBudgetMs ? Math.min(args.wait_ms ?? 0, Math.max(0, ctx.callBudgetMs - 500)) : args.wait_ms ?? 0;
+        const output = await jobManager.waitForNewOutput(args.job_id, waitMs);
         const job = jobManager.getJob(args.job_id);
         return ok("job", `${action === "stdin" ? "Input sent to" : "Polled"} job ${args.job_id}`, {
           job_id: args.job_id,

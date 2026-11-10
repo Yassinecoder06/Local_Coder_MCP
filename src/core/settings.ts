@@ -11,6 +11,7 @@ export interface Settings {
   approvalMode?: "trust" | "minimal" | "standard";
   toolProfile?: "essential" | "full";
   lastWorkspace?: string;
+  lastWorkspaceByClient?: Record<string, string>;
   workspaceRoots?: string[];
   defaultWorkspace?: string;
 }
@@ -35,6 +36,7 @@ export function initSettings(dataDir: string, defaults?: Partial<Settings>): Set
         approvalMode: parsed.approvalMode ?? defaults?.approvalMode,
         toolProfile: parsed.toolProfile ?? defaults?.toolProfile,
         lastWorkspace: parsed.lastWorkspace ?? defaults?.lastWorkspace,
+        lastWorkspaceByClient: parsed.lastWorkspaceByClient && typeof parsed.lastWorkspaceByClient === "object" ? parsed.lastWorkspaceByClient : defaults?.lastWorkspaceByClient,
         workspaceRoots: Array.isArray(parsed.workspaceRoots) ? parsed.workspaceRoots : defaults?.workspaceRoots,
         defaultWorkspace: typeof parsed.defaultWorkspace === "string" ? parsed.defaultWorkspace : defaults?.defaultWorkspace,
       };
@@ -50,6 +52,7 @@ export function initSettings(dataDir: string, defaults?: Partial<Settings>): Set
     approvalMode: defaults?.approvalMode,
     toolProfile: defaults?.toolProfile,
     lastWorkspace: defaults?.lastWorkspace,
+    lastWorkspaceByClient: defaults?.lastWorkspaceByClient,
     workspaceRoots: defaults?.workspaceRoots,
     defaultWorkspace: defaults?.defaultWorkspace,
   };
@@ -76,6 +79,7 @@ export function getSettings(): Settings {
     approvalMode: activeSettings.approvalMode,
     toolProfile: activeSettings.toolProfile,
     lastWorkspace: activeSettings.lastWorkspace,
+    lastWorkspaceByClient: activeSettings.lastWorkspaceByClient ? { ...activeSettings.lastWorkspaceByClient } : undefined,
     workspaceRoots: activeSettings.workspaceRoots ? [...activeSettings.workspaceRoots] : undefined,
     defaultWorkspace: activeSettings.defaultWorkspace,
   };
@@ -88,6 +92,7 @@ export async function updateSettings(patch: Partial<Settings>): Promise<Settings
     approvalMode: patch.approvalMode !== undefined ? patch.approvalMode : activeSettings.approvalMode,
     toolProfile: patch.toolProfile !== undefined ? patch.toolProfile : activeSettings.toolProfile,
     lastWorkspace: "lastWorkspace" in patch ? patch.lastWorkspace : activeSettings.lastWorkspace,
+    lastWorkspaceByClient: "lastWorkspaceByClient" in patch ? (patch.lastWorkspaceByClient ? { ...patch.lastWorkspaceByClient } : undefined) : activeSettings.lastWorkspaceByClient,
     workspaceRoots: "workspaceRoots" in patch ? (patch.workspaceRoots ? [...patch.workspaceRoots] : undefined) : activeSettings.workspaceRoots,
     defaultWorkspace: "defaultWorkspace" in patch ? patch.defaultWorkspace : activeSettings.defaultWorkspace,
   };

@@ -57,6 +57,8 @@ const Env = z.object({
   SHELL_TIMEOUT_MS: z.coerce.number().int().default(120_000),
   /** Commands that return within this window are synchronous; longer ones keep running in the background. */
   SHELL_SYNC_MS: z.coerce.number().int().default(15_000),
+  /** Per-client tool-call deadlines in milliseconds, e.g. gemini=8000; unspecified clients have no added deadline. */
+  CLIENT_CALL_BUDGET_MS: z.string().default("gemini=8000"),
   MAX_OUTPUT_BYTES: z.coerce.number().int().default(60_000),
   CHECKPOINTS: bool(true),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
@@ -89,6 +91,7 @@ export interface AppConfig {
   toolProfile: "essential" | "full";
   shellTimeoutMs: number;
   shellSyncMs: number;
+  clientCallBudgetsMs?: Record<string, number>;
   maxOutputBytes: number;
   checkpoints: boolean;
   logLevel: "debug" | "info" | "warn" | "error";
@@ -127,6 +130,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     toolProfile: e.TOOL_PROFILE,
     shellTimeoutMs: e.SHELL_TIMEOUT_MS,
     shellSyncMs: e.SHELL_SYNC_MS,
+    clientCallBudgetsMs: e.CLIENT_CALL_BUDGET_MS.split(/[;,]/).reduce<Record<string, number>>((budgets, entry) => {
+      const [client, rawValue] = entry.split("=").map((part) => part.trim());
+      const value = Number(rawValue);
+      if (client && Number.isFinite(value) && value > 0) budgets[client] = value;
+      return budgets;
+    }, {}),
     maxOutputBytes: e.MAX_OUTPUT_BYTES,
     checkpoints: e.CHECKPOINTS,
     logLevel: e.LOG_LEVEL,

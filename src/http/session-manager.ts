@@ -23,7 +23,7 @@ import { annotationsFor, type ApprovalMode } from "../core/annotations.js";
 import { getSettings, updateSettings } from "../core/settings.js";
 import toolModules from "../tools/index.js";
 import { buildInstructions } from "../mcp/instructions.js";
-import { createMcpServer } from "../mcp/server.js";
+import { createMcpServer, inferClient } from "../mcp/server.js";
 
 const SESSION_TTL_MS = 60 * 60 * 1000; // 1 hour idle TTL
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -169,16 +169,21 @@ export class SessionManager {
     const sessionId = forcedSessionId || crypto.randomUUID();
     const settings = getSettings();
     const effective = resolveWorkspaces(this.deps.config, settings);
+    const clientKind = inferClient(clientInfo?.name);
     const initialWorkspace = resolveInitialWorkspace(
       effective.roots,
       effective.defaultWorkspace,
-      settings.lastWorkspace
+      settings.lastWorkspaceByClient?.[clientKind] ?? settings.lastWorkspace
     );
     const workspace = createWorkspace(
       effective.roots,
       initialWorkspace,
       (newActive) => {
-        void updateSettings({ lastWorkspace: newActive }).catch((err) => {
+        const current = getSettings();
+        void updateSettings({
+          lastWorkspace: newActive,
+          lastWorkspaceByClient: { ...current.lastWorkspaceByClient, [clientKind]: newActive },
+        }).catch((err) => {
           console.warn("[workspace] Failed to persist lastWorkspace:", err);
         });
       },
@@ -191,6 +196,8 @@ export class SessionManager {
       commands: this.deps.commands,
       activity: this.deps.activity,
       board: this.deps.board,
+      callBudgetMs: this.deps.config.clientCallBudgetsMs?.[clientKind],
+      clientKind,
     };
 
     const transport = new StreamableHTTPServerTransport({
@@ -274,22 +281,24 @@ export class SessionManager {
     }
 
     const isInit = isInitializeRequest(req.body);
+    const requestClientInfo = req.body?.params?.clientInfo;
+    const inferredClientName = requestClientInfo?.name ?? inferClient(undefined, { userAgent: req.headers["user-agent"] as string | undefined, origin: req.headers.origin as string | undefined });
 
     let session: McpSession | undefined;
 
     if (isInit) {
       // Initialization creates a fresh session
-      session = await this.buildSession();
+      session = await this.buildSession(undefined, requestClientInfo ?? { name: inferredClientName, version: "" });
     } else if (rawSid && this.sessions.has(rawSid)) {
       // Existing session
       session = this.sessions.get(rawSid)!;
     } else if (rawSid && !this.sessions.has(rawSid)) {
       // Transparent recovery: re-create session with the requested stale session ID
-      session = await this.buildSession(rawSid);
+      session = await this.buildSession(rawSid, { name: inferredClientName, version: "" });
     } else {
       // Request without a session ID that is NOT initialize: serve with a fresh session
       const newSid = crypto.randomUUID();
-      session = await this.buildSession(newSid);
+      session = await this.buildSession(newSid, { name: inferredClientName, version: "" });
     }
 
     const sid = session.sessionId;
