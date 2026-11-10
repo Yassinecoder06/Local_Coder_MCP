@@ -296,4 +296,19 @@ test("files tools: read, list, checkpoints, edit_files", async (t) => {
     assert.equal(res4.ok, true);
     await assert.rejects(fs.access(path.join(env.workspaceDir, "patch-moved.txt")));
   });
+
+  await t.test("edit_files: supports ops alias for operations", async () => {
+    const patch = `*** Begin Patch
+*** Add File: ops-test.txt
++Hello from ops alias
+*** End Patch`;
+
+    const res = await editFilesTool.handler(
+      { ops: [{ op: "patch", patch }] },
+      env.ctx
+    );
+    assert.equal(res.ok, true);
+    const content = await fs.readFile(path.join(env.workspaceDir, "ops-test.txt"), "utf-8");
+    assert.equal(content, "Hello from ops alias");
+  });
 });

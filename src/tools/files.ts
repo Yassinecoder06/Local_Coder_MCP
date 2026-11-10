@@ -351,6 +351,45 @@ export const checkpointsTool = defineTool({
   },
 });
 
+const fileOperationSchema = z.object({
+  op: z
+    .enum(["write", "replace", "patch", "move", "copy", "delete", "mkdir", "undo"])
+    .describe("Operation type: write (create/overwrite file), replace (exact text substitution), patch (unified or Begin Patch diff), move (rename), copy, delete, mkdir, or undo (restore checkpoint)"),
+  path: z
+    .string()
+    .optional()
+    .describe("Target file or directory path for write, replace, patch, move source, copy source, delete, or mkdir"),
+  content: z
+    .string()
+    .optional()
+    .describe("Full content to write for 'write' operation"),
+  old: z
+    .string()
+    .optional()
+    .describe("Exact text to match and replace for 'replace' operation"),
+  new: z
+    .string()
+    .optional()
+    .describe("Replacement text for 'replace' operation"),
+  replace_all: z
+    .boolean()
+    .default(false)
+    .optional()
+    .describe("Replace all occurrences if true, first occurrence only if false for 'replace' operation (default false)"),
+  patch: z
+    .string()
+    .optional()
+    .describe("Patch content in unified diff or '*** Begin Patch' format for 'patch' operation"),
+  to: z
+    .string()
+    .optional()
+    .describe("Destination file or directory path for 'move' or 'copy' operation"),
+  checkpoint_id: z
+    .string()
+    .optional()
+    .describe("Checkpoint ID to restore for 'undo' operation"),
+});
+
 export const editFilesTool = defineTool({
   name: "edit_files",
   title: "Edit Files",
@@ -363,53 +402,18 @@ export const editFilesTool = defineTool({
       .optional()
       .describe("Multi-file patch in '*** Begin Patch' format or standard unified diff (convenience shorthand for a patch operation)"),
     operations: z
-      .array(
-        z.object({
-          op: z
-            .enum(["write", "replace", "patch", "move", "copy", "delete", "mkdir", "undo"])
-            .describe("Operation type: write (create/overwrite file), replace (exact text substitution), patch (unified or Begin Patch diff), move (rename), copy, delete, mkdir, or undo (restore checkpoint)"),
-          path: z
-            .string()
-            .optional()
-            .describe("Target file or directory path for write, replace, patch, move source, copy source, delete, or mkdir"),
-          content: z
-            .string()
-            .optional()
-            .describe("Full content to write for 'write' operation"),
-          old: z
-            .string()
-            .optional()
-            .describe("Exact text to match and replace for 'replace' operation"),
-          new: z
-            .string()
-            .optional()
-            .describe("Replacement text for 'replace' operation"),
-          replace_all: z
-            .boolean()
-            .default(false)
-            .optional()
-            .describe("Replace all occurrences if true, first occurrence only if false for 'replace' operation (default false)"),
-          patch: z
-            .string()
-            .optional()
-            .describe("Patch content in unified diff or '*** Begin Patch' format for 'patch' operation"),
-          to: z
-            .string()
-            .optional()
-            .describe("Destination file or directory path for 'move' or 'copy' operation"),
-          checkpoint_id: z
-            .string()
-            .optional()
-            .describe("Checkpoint ID to restore for 'undo' operation"),
-        })
-      )
+      .array(fileOperationSchema)
       .default([])
       .optional()
       .describe("Array of file operations to execute sequentially in one batch. Always batch multiple file edits in a single call."),
+    ops: z
+      .array(fileOperationSchema)
+      .optional()
+      .describe("Alias for operations"),
   },
   handler: async (args, ctx) => {
     try {
-      const opsList = [...(args.operations ?? [])];
+      const opsList = [...(args.operations && args.operations.length > 0 ? args.operations : (args.ops ?? []))];
       if (args.patch) {
         opsList.unshift({ op: "patch", patch: args.patch });
       }

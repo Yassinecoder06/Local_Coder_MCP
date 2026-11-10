@@ -2,6 +2,7 @@
  * Owned by agy1. Creates and configures per-session McpServer instances.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import toolModules from "../tools/index.js";
 import { annotationsFor } from "../core/annotations.js";
@@ -60,25 +61,33 @@ function summarizeArgs(args: unknown): string {
 }
 
 function unknownToolHint(name: string, names: string[]): string {
-  const editAliases = new Set(["edit", "apply_patch", "write", "patch"]);
-  if (editAliases.has(name)) {
-    return `Unknown tool: ${name}. Use tools.edit_files({ ops: [...] }), for example tools.edit_files({ ops: [{ op: "patch", path: "src/file.ts", patch: "@@\\n-old\\n+new" }] }).`;
-  }
   const distance = (a: string, b: string) => {
     const row = Array.from({ length: b.length + 1 }, (_, i) => i);
     for (let i = 1; i <= a.length; i++) {
       let prev = row[0]; row[0] = i;
       for (let j = 1; j <= b.length; j++) {
         const old = row[j];
-        row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+        row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1].toLowerCase() === b[j - 1].toLowerCase() ? 0 : 1));
         prev = old;
       }
     }
     return row[b.length];
   };
-  const closest = names.map((candidate) => ({ candidate, score: distance(name, candidate) }))
-    .sort((a, b) => a.score - b.score).slice(0, 3).map(({ candidate }) => candidate);
-  return `Unknown tool: ${name}. Closest tools: ${closest.join(", ")}.`;
+  const closest = names
+    .map((candidate) => ({ candidate, score: distance(name, candidate) }))
+    .sort((a, b) => a.score - b.score || a.candidate.localeCompare(b.candidate))
+    .slice(0, 3)
+    .map(({ candidate }) => candidate);
+
+  let msg = `Unknown tool: ${name}.`;
+  if (closest.length > 0) {
+    msg += ` Closest tools: ${closest.join(", ")}.`;
+  }
+  const editAliases = new Set(["edit", "apply_patch", "write", "patch"]);
+  if (editAliases.has(name.toLowerCase())) {
+    msg += ` Use tools.edit_files({ ops: [...] }), for example tools.edit_files({ ops: [{ op: "patch", path: "src/file.ts", patch: "@@\\n-old\\n+new" }] }).`;
+  }
+  return msg;
 }
 
 function classifyClient(text: string): string | undefined {
@@ -494,6 +503,45 @@ export async function createMcpServer(
   (server as any).setToolRequestHandlers();
   (server as any).setPromptRequestHandlers();
   (server as any).setResourceRequestHandlers();
+
+  // Direct MCP calls for unknown tool names: provide closest names and edit_files hint if SDK allows
+  try {
+    const rawHandlers = (server.server as any)._requestHandlers;
+    const origCallTool = rawHandlers?.get("tools/call");
+    if (origCallTool) {
+      rawHandlers.set("tools/call", async (request: any, extra: any) => {
+        try {
+          const res = await origCallTool(request, extra);
+          if (res && res.isError && Array.isArray(res.content)) {
+            const firstText = res.content[0]?.text;
+            if (typeof firstText === "string" && firstText.includes("not found")) {
+              const toolName = request?.params?.name;
+              if (toolName && typeof toolName === "string") {
+                const allToolNames = ctx.callableTools?.().map((t) => t.name) ?? [...toolMap.keys()];
+                const hint = unknownToolHint(toolName, allToolNames);
+                return {
+                  ...res,
+                  content: [{ type: "text", text: `MCP error -32602: ${hint}` }],
+                  isError: true,
+                };
+              }
+            }
+          }
+          return res;
+        } catch (err: any) {
+          if ((err instanceof McpError || err?.code === ErrorCode.InvalidParams || err?.code === -32602) && String(err.message).includes("not found")) {
+            const toolName = request?.params?.name;
+            if (toolName && typeof toolName === "string") {
+              const allToolNames = ctx.callableTools?.().map((t) => t.name) ?? [...toolMap.keys()];
+              const hint = unknownToolHint(toolName, allToolNames);
+              throw new McpError(ErrorCode.InvalidParams, hint);
+            }
+          }
+          throw err;
+        }
+      });
+    }
+  } catch {}
 
   return server;
 }

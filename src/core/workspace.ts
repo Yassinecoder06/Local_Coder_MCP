@@ -169,17 +169,20 @@ export function validateDefaultWorkspace(defaultWs: string, roots: string[]): st
 export function resolveInitialWorkspace(
   roots: string[],
   defaultWorkspace: string,
-  lastWorkspace?: string
+  lastWorkspace?: string,
+  clientLastWorkspace?: string
 ): string {
-  if (lastWorkspace && typeof lastWorkspace === "string" && lastWorkspace.trim().length > 0) {
-    try {
-      const abs = path.resolve(lastWorkspace);
-      if (fs.existsSync(abs) && fs.statSync(abs).isDirectory()) {
-        if (isPathInsideRoots(abs, roots)) {
-          return abs;
+  for (const candidate of [clientLastWorkspace, lastWorkspace]) {
+    if (candidate && typeof candidate === "string" && candidate.trim().length > 0) {
+      try {
+        const abs = path.resolve(candidate);
+        if (fs.existsSync(abs) && fs.statSync(abs).isDirectory()) {
+          if (isPathInsideRoots(abs, roots)) {
+            return abs;
+          }
         }
-      }
-    } catch {}
+      } catch {}
+    }
   }
   return path.resolve(defaultWorkspace);
 }

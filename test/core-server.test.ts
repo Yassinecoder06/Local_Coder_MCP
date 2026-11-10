@@ -488,6 +488,58 @@ describe("Core Server Architecture", () => {
       assert.equal(getSettings().lastWorkspaceByClient?.chatgpt, chatgptPath);
     });
 
+    it("follows workspace resolution fallback order: per-client -> global lastWorkspace -> default", async () => {
+      const validClientDir = path.join(tmpDataDir, "client-ws");
+      const validGlobalDir = path.join(tmpDataDir, "global-ws");
+      const missingDir = path.join(tmpDataDir, "missing-ws");
+      fs.mkdirSync(validClientDir, { recursive: true });
+      fs.mkdirSync(validGlobalDir, { recursive: true });
+
+      // 1. per-client valid -> returns per-client
+      assert.equal(
+        resolveInitialWorkspace(config.workspaceRoots, config.defaultWorkspace, validGlobalDir, validClientDir),
+        validClientDir
+      );
+
+      // 2. per-client missing -> falls back to global lastWorkspace
+      assert.equal(
+        resolveInitialWorkspace(config.workspaceRoots, config.defaultWorkspace, validGlobalDir, missingDir),
+        validGlobalDir
+      );
+
+      // 3. both per-client and global missing -> falls back to default
+      assert.equal(
+        resolveInitialWorkspace(config.workspaceRoots, config.defaultWorkspace, missingDir, missingDir),
+        config.defaultWorkspace
+      );
+    });
+
+    it("returns helpful hint and closest tool names for direct MCP call to unknown tool", async () => {
+      const res = await fetch(`${mcpBaseUrl}/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Authorization: `Bearer ${testToken}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 99,
+          method: "tools/call",
+          params: {
+            name: "apply_patch",
+            arguments: {},
+          },
+        }),
+      });
+      const data = await res.json() as any;
+      const errorText = data.error?.message ?? data.result?.content?.[0]?.text ?? "";
+      assert.ok(data.result?.isError || data.error);
+      assert.match(errorText, /Unknown tool: apply_patch/);
+      assert.match(errorText, /tools\.edit_files\(\{ ops: \[\.\.\.\] \}\)/);
+      assert.match(errorText, /Closest tools:/);
+    });
+
     it("infers client name when clientInfo is unknown (User-Agent, Origin, and unknown fallback)", async () => {
       // 1. Direct unit checks on inferClient
       assert.equal(inferClient(undefined, { userAgent: "ChatGPT-User/1.0" }), "chatgpt");

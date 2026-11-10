@@ -100,6 +100,30 @@ export interface AppConfig {
 
 export const VERSION = "1.0.0";
 
+function parseClientCallBudgets(raw: string): Record<string, number> {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const budgets: Record<string, number> = {};
+        for (const [client, val] of Object.entries(parsed)) {
+          const num = Number(val);
+          if (client && Number.isFinite(num) && num > 0) budgets[client.toLowerCase()] = Math.round(num);
+        }
+        return budgets;
+      }
+    } catch {}
+  }
+
+  return trimmed.split(/[;,]/).reduce<Record<string, number>>((budgets, entry) => {
+    const [client, rawValue] = entry.split("=").map((part) => part.trim());
+    const value = Number(rawValue);
+    if (client && Number.isFinite(value) && value > 0) budgets[client.toLowerCase()] = Math.round(value);
+    return budgets;
+  }, {});
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const e = Env.parse(env);
   const roots = list(e.WORKSPACE_ROOTS);
@@ -130,12 +154,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     toolProfile: e.TOOL_PROFILE,
     shellTimeoutMs: e.SHELL_TIMEOUT_MS,
     shellSyncMs: e.SHELL_SYNC_MS,
-    clientCallBudgetsMs: e.CLIENT_CALL_BUDGET_MS.split(/[;,]/).reduce<Record<string, number>>((budgets, entry) => {
-      const [client, rawValue] = entry.split("=").map((part) => part.trim());
-      const value = Number(rawValue);
-      if (client && Number.isFinite(value) && value > 0) budgets[client] = value;
-      return budgets;
-    }, {}),
+    clientCallBudgetsMs: parseClientCallBudgets(e.CLIENT_CALL_BUDGET_MS),
     maxOutputBytes: e.MAX_OUTPUT_BYTES,
     checkpoints: e.CHECKPOINTS,
     logLevel: e.LOG_LEVEL,
