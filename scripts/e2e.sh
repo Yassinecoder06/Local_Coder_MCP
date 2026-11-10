@@ -314,7 +314,7 @@ echo "Admin resets workspace roots to .env: ok"
 
 # Named services are managed through run/job, and workspace selection persists per client.
 service_port=18789
-service_start=$(json_response "$(rpc "$(jq -cn --arg command "node -e 'require(\"http\").createServer((_,res)=>res.end(\"service-e2e-ok\")).listen($service_port)'" --argjson port "$service_port" '{jsonrpc:"2.0",id:40,method:"tools/call",params:{name:"run",arguments:{service:"e2e",command:$command,port:$port}}}')")")
+service_start=$(json_response "$(rpc "$(jq -cn --arg command "node -e 'require(\"http\").createServer((_,res)=>res.end(\"service-e2e-ok\")).listen($service_port,()=>console.log(\"service-e2e-ok\"))'" --argjson port "$service_port" '{jsonrpc:"2.0",id:40,method:"tools/call",params:{name:"run",arguments:{service:"e2e",command:$command,port:$port}}}')")")
 echo "$service_start" | jq -e '.result and (.error | not)' >/dev/null
 service_list=$(json_response "$(rpc '{"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"job","arguments":{"action":"services"}}}')")
 echo "$service_list" | jq -e '(.result | tostring) | contains("e2e") and contains("healthy")' >/dev/null
