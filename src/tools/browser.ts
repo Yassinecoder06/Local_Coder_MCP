@@ -9,7 +9,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { z } from "zod";
 import { defineTool, type ToolModule } from "../core/types.js";
-import { ok, fail } from "../core/result.js";
+import { fail } from "../core/result.js";
 
 
 /** A writable per-process home for Chromium, independent of the container's HOME. */
@@ -201,8 +201,14 @@ export const browserCheckTool = defineTool({
     viewport: z.enum(["desktop", "mobile"]).default("desktop").describe("Viewport size: 'desktop' (1280x800) or 'mobile' (390x844)"),
     actions: z.array(actionSchema).optional().describe("Optional sequence of flat action objects {type, selector, text, key, ms}"),
     full_page: z.boolean().default(false).describe("Capture full scrollable page screenshot if true"),
+    block_external: z.boolean().default(false).describe("Abort requests to third-party hosts"),
+    throttle_raf: z.number().int().min(1).max(60).optional().describe("Limit requestAnimationFrame callbacks to this many frames per second"),
   },
   handler: async (args, ctx) => {
+    // Reserve 500 ms of a client budget for partial-state collection and returning the response.
+    const budgetMs = Math.max(1, (ctx.callBudgetMs ?? 30000) - (ctx.callBudgetMs ? 1000 : 0));
+    const deadline = Date.now() + budgetMs;
+    const remaining = () => Math.max(1, deadline - Date.now());
     if (!args.url && !args.path) {
       return fail("browser_check", "Either 'url' or 'path' must be provided");
     }
@@ -217,6 +223,48 @@ export const browserCheckTool = defineTool({
 
     let staticServer: StaticServer | null = null;
     let browser: Browser | null = null;
+    let page: Page | null = null;
+    let budgetExpired = false;
+    const consoleMessages: Array<{ type: string; text: string; location?: string }> = [];
+    const pageErrors: string[] = [];
+    const failedRequests: Array<{ url: string; status?: number; error?: string }> = [];
+    const warnings: string[] = [];
+    const stubUses = new Set<string>();
+    const inFlightRequests = new Set<string>();
+    const buildResult = (title: string, url: string, screenshot?: string) => {
+      const sortedConsole = [...consoleMessages].sort((a, b) => {
+        const score = (t: string) => (t === "error" ? 0 : t === "warning" ? 1 : 2);
+        return score(a.type) - score(b.type);
+      });
+      const totalErrors = pageErrors.length + consoleMessages.filter((c) => c.type === "error").length;
+      const parts: string[] = [];
+      if (totalErrors > 0) parts.push(`${totalErrors} console error${totalErrors === 1 ? "" : "s"}`);
+      if (failedRequests.length > 0) parts.push(`${failedRequests.length} failed request${failedRequests.length === 1 ? "" : "s"}`);
+      let summary = parts.length ? `${parts.join(", ")} on ${url}` : `Loaded ${url} with 0 errors`;
+      if (warnings.length) summary += `; ${warnings.join("; ")}`;
+      if (stubUses.size) summary += `; browser API stubs used: ${[...stubUses].join(", ")}`;
+      return {
+        ok: true as const,
+        tool: "browser_check",
+        summary,
+        data: {
+          title, url, console: sortedConsole, pageErrors, failedRequests, warnings,
+          browserApiStubsUsed: [...stubUses],
+          browserApiStubsAvailable: ["requestPointerLock", "exitPointerLock", "requestFullscreen"],
+        },
+        ...(screenshot ? { images: [{ data: screenshot, mimeType: "image/png" }] } : {}),
+      };
+    };
+    const collectStubUses = async (timeoutMs: number) => {
+      if (!page || page.isClosed()) return;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const names = await Promise.race([
+        page.evaluate(() => (window as any).__browserCheckStubUses ?? []).catch(() => [] as string[]),
+        new Promise<string[]>((resolve) => { timer = setTimeout(() => resolve([]), Math.max(1, timeoutMs)); }),
+      ]);
+      if (timer) clearTimeout(timer);
+      for (const name of names) stubUses.add(name);
+    };
 
     try {
       let targetUrl = args.url;
@@ -236,9 +284,18 @@ export const browserCheckTool = defineTool({
         return fail("browser_check", "Failed to resolve target URL");
       }
 
-      // Enforce 30s total timeout
-      const result = await Promise.race([
-        (async () => {
+      const isLocalHost = (hostname: string) => ["localhost", "127.0.0.1", "::1", "[::1]"].includes(hostname.toLowerCase());
+      const isThirdParty = (url: string) => {
+        try {
+          const req = new URL(url);
+          const target = new URL(targetUrl!);
+          return req.origin !== target.origin && !isLocalHost(req.hostname);
+        } catch {
+          return false;
+        }
+      };
+
+      const resultPromise = (async () => {
           browser = await chromium.launch({
             executablePath: chromiumPath,
             headless: true,
@@ -247,6 +304,11 @@ export const browserCheckTool = defineTool({
             // root-owned mount point); Chromium's profile and crashpad need a writable home.
             env: { ...process.env, ...chromiumHomeEnv() },
           });
+          if (budgetExpired) {
+            await browser.close().catch(() => undefined);
+            browser = null;
+            throw new Error("browser_check call budget elapsed during browser launch");
+          }
 
           const isMobile = args.viewport === "mobile";
           const context = await browser.newContext(
@@ -255,9 +317,53 @@ export const browserCheckTool = defineTool({
               : { viewport: { width: 1280, height: 800 } }
           );
 
-          const page: Page = await context.newPage();
+          page = await context.newPage();
+          const rafFps = JSON.stringify(args.throttle_raf ?? null);
+          await page.addInitScript({ content: `(() => {
+            const fps = ${rafFps};
+            window.__browserCheckStubUses = [];
+            const mark = (name) => { if (!window.__browserCheckStubUses.includes(name)) window.__browserCheckStubUses.push(name); };
+            const requestPointerLockStub = function () {
+              mark("requestPointerLock");
+              try { Object.defineProperty(document, "pointerLockElement", { configurable: true, value: this }); } catch (_) {}
+              document.dispatchEvent(new Event("pointerlockchange"));
+              return Promise.resolve();
+            };
+            const requestFullscreenStub = function () { mark("requestFullscreen"); return Promise.resolve(); };
+            Object.defineProperty(Element.prototype, "requestPointerLock", { configurable: true, writable: true, value: requestPointerLockStub });
+            Object.defineProperty(Element.prototype, "requestFullscreen", { configurable: true, writable: true, value: requestFullscreenStub });
+            Object.defineProperty(Document.prototype, "exitPointerLock", {
+              configurable: true, writable: true,
+              value: function () {
+                mark("exitPointerLock");
+                try { Object.defineProperty(document, "pointerLockElement", { configurable: true, value: null }); } catch (_) {}
+                document.dispatchEvent(new Event("pointerlockchange"));
+              }
+            });
+            if (fps) {
+              const nativeRaf = window.requestAnimationFrame.bind(window);
+              const nativeCancel = window.cancelAnimationFrame.bind(window);
+              const interval = 1000 / fps;
+              let last = 0, nextId = 1;
+              const timers = new Map();
+              window.requestAnimationFrame = (callback) => {
+                const id = nextId++;
+                const delay = Math.max(0, interval - (performance.now() - last));
+                const timer = window.setTimeout(() => {
+                  last = performance.now(); timers.delete(id);
+                  nativeRaf((time) => callback(time));
+                }, delay);
+                timers.set(id, timer);
+                return id;
+              };
+              window.cancelAnimationFrame = (id) => {
+                const timer = timers.get(id);
+                if (timer !== undefined) window.clearTimeout(timer);
+                timers.delete(id); nativeCancel(id);
+              };
+            }
+          })()` });
 
-          const consoleMessages: Array<{ type: string; text: string; location?: string }> = [];
           page.on("console", (msg) => {
             const locUrl = msg.location().url;
             if (locUrl && locUrl.endsWith("/favicon.ico")) return;
@@ -269,14 +375,17 @@ export const browserCheckTool = defineTool({
             });
           });
 
-          const pageErrors: string[] = [];
           page.on("pageerror", (err) => {
             pageErrors.push(err.message || String(err));
           });
 
-          const failedRequests: Array<{ url: string; status?: number; error?: string }> = [];
+          const intentionallyAborted = new Set<string>();
+          page.on("request", (req) => { if (!req.url().endsWith("/favicon.ico")) inFlightRequests.add(req.url()); });
+          page.on("requestfinished", (req) => inFlightRequests.delete(req.url()));
           page.on("requestfailed", (req) => {
+            inFlightRequests.delete(req.url());
             if (req.url().endsWith("/favicon.ico")) return;
+            if (intentionallyAborted.has(req.url())) return;
             failedRequests.push({
               url: req.url(),
               error: req.failure()?.errorText || "Network failure",
@@ -294,18 +403,53 @@ export const browserCheckTool = defineTool({
             }
           });
 
-          await page.goto(targetUrl, { timeout: 20000, waitUntil: "load" });
+          await page.route("**/*", async (route) => {
+            const url = route.request().url();
+            if (!isThirdParty(url)) return route.continue();
+            if (args.block_external) {
+              intentionallyAborted.add(url);
+              warnings.push(`Blocked third-party request: ${url}`);
+              return route.abort();
+            }
+            try {
+              const response = await route.fetch({ timeout: Math.min(2000, remaining()) });
+              return route.fulfill({ response });
+            } catch {
+              intentionallyAborted.add(url);
+              warnings.push(`Aborted slow third-party request (> 2 s): ${url}`);
+              return route.abort();
+            }
+          });
 
+          await page.goto(targetUrl, { timeout: remaining(), waitUntil: "domcontentloaded" });
+          try {
+            await page.waitForLoadState("load", { timeout: Math.min(3000, remaining()) });
+          } catch {
+            const pending = [...inFlightRequests].slice(0, 3);
+            warnings.push(`page 'load' did not finish (pending: ${pending.length ? pending.join(", ") : "unknown requests"})`);
+          }
           // Execute optional actions
           if (args.actions && args.actions.length > 0) {
             for (const action of args.actions) {
               if (action.type === "click" && action.selector) {
-                await page.click(action.selector, { timeout: 5000 });
+                try {
+                  await page.locator(action.selector).click({ timeout: Math.min(3000, remaining()), noWaitAfter: true });
+                } catch (err) {
+                  if (!/timeout|waiting for/i.test(String(err))) throw err;
+                  await page.locator(action.selector).click({ timeout: Math.min(3000, remaining()), noWaitAfter: true, force: true });
+                  warnings.push(`Retried click on ${action.selector} with force:true after actionability timeout`);
+                }
               } else if (action.type === "type" && action.selector && action.text !== undefined) {
-                await page.fill(action.selector, action.text, { timeout: 5000 });
+                try {
+                  await page.locator(action.selector).fill(action.text, { timeout: Math.min(3000, remaining()), noWaitAfter: true });
+                } catch (err) {
+                  if (!/timeout|waiting for/i.test(String(err))) throw err;
+                  await page.locator(action.selector).fill(action.text, { timeout: Math.min(3000, remaining()), noWaitAfter: true, force: true });
+                  warnings.push(`Retried fill on ${action.selector} with force:true after actionability timeout`);
+                }
               } else if (action.type === "press") {
                 if (action.selector && action.key) {
-                  await page.press(action.selector, action.key, { timeout: 5000 });
+                  await page.locator(action.selector).press(action.key, { timeout: Math.min(3000, remaining()), noWaitAfter: true });
                 } else if (action.key) {
                   await page.keyboard.press(action.key);
                 }
@@ -318,75 +462,59 @@ export const browserCheckTool = defineTool({
           // Wait after navigation/actions
           const waitMs = args.wait_ms ?? 1500;
           if (waitMs > 0) {
-            await page.waitForTimeout(waitMs);
+            await page.waitForTimeout(Math.min(waitMs, remaining()));
           }
 
           const title = await page.title();
           const finalUrl = page.url();
 
           // Screenshot with ~1 MB cap
-          let screenshotBuffer = await page.screenshot({
-            fullPage: Boolean(args.full_page),
-            type: "png",
-          });
-
-          if (screenshotBuffer.length > 1_000_000 && args.full_page) {
-            screenshotBuffer = await page.screenshot({
-              fullPage: false,
+          let base64Data: string | undefined;
+          try {
+            let screenshotBuffer = await page.screenshot({
+              fullPage: Boolean(args.full_page),
               type: "png",
+              timeout: Math.min(3000, remaining()),
             });
+            if (screenshotBuffer.length > 1_000_000 && args.full_page) {
+              screenshotBuffer = await page.screenshot({
+                fullPage: false,
+                type: "png",
+                timeout: Math.min(3000, remaining()),
+              });
+            }
+            base64Data = screenshotBuffer.toString("base64");
+          } catch (err) {
+            warnings.push(`Screenshot unavailable: ${trimChromiumError(err)}`);
           }
-
-          const base64Data = screenshotBuffer.toString("base64");
 
           // Sort console messages: errors first, then warnings, then others
-          const sortedConsole = [...consoleMessages].sort((a, b) => {
-            const score = (t: string) => (t === "error" ? 0 : t === "warning" ? 1 : 2);
-            return score(a.type) - score(b.type);
-          });
+          await collectStubUses(remaining());
+          return buildResult(title, finalUrl, base64Data);
+        })();
 
-          const errorConsoleCount = consoleMessages.filter((c) => c.type === "error").length;
-          const totalErrors = pageErrors.length + errorConsoleCount;
-          const failedReqCount = failedRequests.length;
-
-          let summary: string;
-          if (totalErrors === 0 && failedReqCount === 0) {
-            summary = `Loaded ${finalUrl} with 0 errors`;
-          } else {
-            const parts: string[] = [];
-            if (totalErrors > 0) {
-              parts.push(`${totalErrors} console error${totalErrors === 1 ? "" : "s"}`);
-            }
-            if (failedReqCount > 0) {
-              parts.push(`${failedReqCount} failed request${failedReqCount === 1 ? "" : "s"}`);
-            }
-            summary = `${parts.join(", ")} on ${finalUrl}`;
+      let budgetTimer: ReturnType<typeof setTimeout> | undefined;
+      const budgetResult = new Promise<ReturnType<typeof buildResult>>((resolve) => {
+        budgetTimer = setTimeout(async () => {
+          budgetExpired = true;
+          warnings.push(`browser_check stopped at its ${budgetMs} ms call budget`);
+          let screenshot: string | undefined;
+          if (page && !page.isClosed()) {
+            try { screenshot = (await page.screenshot({ type: "png", timeout: 250 })).toString("base64"); } catch { /* partial result still useful */ }
+            await collectStubUses(100);
           }
-
-          return {
-            ok: true,
-            tool: "browser_check",
-            summary,
-            data: {
-              title,
-              url: finalUrl,
-              console: sortedConsole,
-              pageErrors,
-              failedRequests,
-            },
-            images: [
-              {
-                data: base64Data,
-                mimeType: "image/png",
-              },
-            ],
-          };
-        })(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("browser_check timed out after 30s")), 30000)
-        ),
-      ]);
-
+          let title = "";
+          if (page && !page.isClosed()) {
+            title = await Promise.race([
+              page.title().catch(() => ""),
+              new Promise<string>((resolve) => setTimeout(() => resolve(""), 100)),
+            ]);
+          }
+          resolve(buildResult(title, page?.url() ?? targetUrl!, screenshot));
+        }, remaining());
+      });
+      const result = await Promise.race([resultPromise, budgetResult]);
+      if (budgetTimer) clearTimeout(budgetTimer);
       return result;
     } catch (err) {
       return fail("browser_check", trimChromiumError(err));

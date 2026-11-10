@@ -31,6 +31,8 @@ export interface ToolResult<T = unknown> {
 
 /** Everything a tool handler may use. Built once per MCP session. */
 export interface ToolContext {
+  /** Optional per-call deadline supplied by clients with short tool-call budgets. */
+  callBudgetMs?: number;
   config: AppConfig;
   workspace: Workspace;
   skills: SkillRegistry;
