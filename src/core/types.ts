@@ -33,6 +33,8 @@ export interface ToolResult<T = unknown> {
 export interface ToolContext {
   /** Optional per-call deadline supplied by clients with short tool-call budgets. */
   callBudgetMs?: number;
+  /** Normalized MCP client kind used for client-specific policy and diagnostics. */
+  clientKind?: string;
   config: AppConfig;
   workspace: Workspace;
   skills: SkillRegistry;

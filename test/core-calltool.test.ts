@@ -111,6 +111,15 @@ describe("ToolContext callTool and callableTools wiring", () => {
     assert.equal(recent[0].via, "exec");
   });
 
+  it("suggests edit_files for familiar edit aliases and closest tool names", async () => {
+    const alias = await mockCtx.callTool!("apply_patch", {});
+    assert.equal(alias.ok, false);
+    assert.match(alias.error ?? "", /tools\.edit_files\(\{ ops: \[\.\.\.\] \}\)/);
+    assert.match(alias.error ?? "", /op: "patch"/);
+    const typo = await mockCtx.callTool!("workspce_info", {});
+    assert.match(typo.error ?? "", /workspace_info/);
+  });
+
   it("refuses disabled tool and records activity with via: 'exec'", async () => {
     await updateSettings({ disabledTools: ["status"] });
     try {

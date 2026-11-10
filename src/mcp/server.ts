@@ -59,6 +59,28 @@ function summarizeArgs(args: unknown): string {
   }
 }
 
+function unknownToolHint(name: string, names: string[]): string {
+  const editAliases = new Set(["edit", "apply_patch", "write", "patch"]);
+  if (editAliases.has(name)) {
+    return `Unknown tool: ${name}. Use tools.edit_files({ ops: [...] }), for example tools.edit_files({ ops: [{ op: "patch", path: "src/file.ts", patch: "@@\\n-old\\n+new" }] }).`;
+  }
+  const distance = (a: string, b: string) => {
+    const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i++) {
+      let prev = row[0]; row[0] = i;
+      for (let j = 1; j <= b.length; j++) {
+        const old = row[j];
+        row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+        prev = old;
+      }
+    }
+    return row[b.length];
+  };
+  const closest = names.map((candidate) => ({ candidate, score: distance(name, candidate) }))
+    .sort((a, b) => a.score - b.score).slice(0, 3).map(({ candidate }) => candidate);
+  return `Unknown tool: ${name}. Closest tools: ${closest.join(", ")}.`;
+}
+
 function classifyClient(text: string): string | undefined {
   const lower = text.toLowerCase();
 
@@ -184,7 +206,7 @@ export async function createMcpServer(
       const targetTool = toolMap.get(name);
 
       if (!targetTool) {
-        res = fail(name, `Unknown tool: ${name}`);
+        res = fail(name, unknownToolHint(name, ctx.callableTools?.().map((tool) => tool.name) ?? [...toolMap.keys()]));
       } else if (currentDisabled.has(name)) {
         res = fail(name, `Tool is disabled: ${name}`);
       } else if (currentProfile === "essential" && !ESSENTIAL_TOOLS.has(name)) {

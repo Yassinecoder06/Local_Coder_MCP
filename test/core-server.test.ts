@@ -456,6 +456,38 @@ describe("Core Server Architecture", () => {
       );
     });
 
+    it("remembers workspace per detected client across new MCP sessions", async () => {
+      const geminiPath = path.join(tmpDataDir, "gemini-workspace");
+      const chatgptPath = path.join(tmpDataDir, "chatgpt-workspace");
+      fs.mkdirSync(geminiPath, { recursive: true });
+      fs.mkdirSync(chatgptPath, { recursive: true });
+      await updateSettings({ lastWorkspace: undefined, lastWorkspaceByClient: undefined });
+
+      const post = async (body: unknown, session?: string) => {
+        const response = await fetch(`${mcpBaseUrl}/mcp`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json", Accept: "application/json, text/event-stream",
+            Authorization: `Bearer ${testToken}`, ...(session ? { "Mcp-Session-Id": session } : {}),
+          },
+          body: JSON.stringify(body),
+        });
+        return { response, data: await response.json() as any, session: response.headers.get("mcp-session-id")! };
+      };
+      const init = async (name: string) => post({ jsonrpc: "2.0", id: 1, method: "initialize", params: {
+        protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name, version: "1.0" },
+      } });
+      const gemini = await init("gemini");
+      await post({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "workspace_switch", arguments: { path: geminiPath } } }, gemini.session);
+      const chatgpt = await init("ChatGPT");
+      await post({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "workspace_switch", arguments: { path: chatgptPath } } }, chatgpt.session);
+      const freshGemini = await init("gemini");
+      const info = await post({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "workspace_info", arguments: {} } }, freshGemini.session);
+      assert.ok(JSON.stringify(info.data).includes(geminiPath));
+      assert.equal(getSettings().lastWorkspaceByClient?.gemini, geminiPath);
+      assert.equal(getSettings().lastWorkspaceByClient?.chatgpt, chatgptPath);
+    });
+
     it("infers client name when clientInfo is unknown (User-Agent, Origin, and unknown fallback)", async () => {
       // 1. Direct unit checks on inferClient
       assert.equal(inferClient(undefined, { userAgent: "ChatGPT-User/1.0" }), "chatgpt");

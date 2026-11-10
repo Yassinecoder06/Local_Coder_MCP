@@ -8,6 +8,7 @@ export const execTool = defineTool({
   title: "Execute Code Mode",
   description:
     "Execute a JavaScript script to batch multiple tool calls in a single turn. Has top-level await, tools.<name>(args), plugins.<id>.<tool>(args), ALL_TOOLS, PLUGINS, text(value), and image(val). " +
+    "Return shapes: read → data.files[i].content; run(command) → data.output / data.exit_code; run(cmds) → data.items[i].output; job → data.output; plugins → summary / data.text. " +
     "Call plugin_tools first to inspect available plugins and schemas. " +
     'Example: const [a, b] = await Promise.all([tools.read({ paths: ["package.json"] }), tools.git({ subcommand: "status" })]); text(a.summary); text(b.data);',
   group: "system",
@@ -60,9 +61,10 @@ export const execTool = defineTool({
         }
       : undefined;
 
+    const budgetTimeout = ctx.callBudgetMs ? Math.max(100, ctx.callBudgetMs - 500) : undefined;
     const result = await runCodeMode({
       code: args.code,
-      timeoutMs: args.timeout_ms,
+      timeoutMs: args.timeout_ms ?? budgetTimeout,
       callableTools: callable,
       callTool: ctx.callTool,
       plugins: pluginList,
@@ -70,7 +72,11 @@ export const execTool = defineTool({
     });
 
     if (!result.ok) {
-      return fail("exec", result.error);
+      const budgetSeconds = budgetTimeout ? Math.round(budgetTimeout / 1000) : 0;
+      const error = !args.timeout_ms && budgetTimeout && result.error.includes("timed out")
+        ? `exec stopped at ~${budgetSeconds}s to stay inside ${ctx.clientKind ?? "client"}'s tool time limit; start long commands with run (it returns a job_id) and poll with job`
+        : result.error;
+      return fail("exec", error);
     }
 
     const summary = `Executed code with ${result.totalCalls} tool call${result.totalCalls === 1 ? "" : "s"}`;

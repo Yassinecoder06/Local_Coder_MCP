@@ -23,6 +23,15 @@ test("shell tools: run sync, run background, job status/output, run with stop_jo
     assert.ok(!res.summary.includes("Tip: use browser_check"));
   });
 
+  await t.test("applies the client call budget to the synchronous shell window", async () => {
+    env.ctx.callBudgetMs = 80;
+    const res = await runTool.handler({ command: "sleep 0.3" }, env.ctx);
+    assert.equal(res.ok, true);
+    assert.equal(res.data.running, true);
+    await runTool.handler({ stop_job_id: res.data.job_id }, env.ctx);
+    env.ctx.callBudgetMs = undefined;
+  });
+
   await t.test("appends browser_check hint when invoking chromium or playwright directly", async () => {
     // Succeeded command invoking chromium
     const okRes = await runTool.handler({ command: "echo 'mock chromium' && echo done" }, env.ctx);
