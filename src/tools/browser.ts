@@ -202,7 +202,7 @@ export const browserCheckTool = defineTool({
     actions: z.array(actionSchema).optional().describe("Optional sequence of flat action objects {type, selector, text, key, ms}"),
     full_page: z.boolean().default(false).describe("Capture full scrollable page screenshot if true"),
     block_external: z.boolean().default(false).describe("Abort requests to third-party hosts"),
-    throttle_raf: z.number().int().min(1).max(60).optional().describe("Limit requestAnimationFrame callbacks to this many frames per second"),
+    throttle_raf: z.number().int().min(1).max(60).default(30).optional().describe("Limit requestAnimationFrame callbacks to this many frames per second (defaults to 30 to prevent SwiftShader renderer starvation)"),
   },
   handler: async (args, ctx) => {
     // Reserve 500 ms of a client budget for partial-state collection and returning the response.
@@ -285,17 +285,26 @@ export const browserCheckTool = defineTool({
       }
 
       const isLocalHost = (hostname: string) => ["localhost", "127.0.0.1", "::1", "[::1]"].includes(hostname.toLowerCase());
+      const targetParsed = new URL(targetUrl);
       const isThirdParty = (url: string) => {
         try {
           const req = new URL(url);
-          const target = new URL(targetUrl!);
-          return req.origin !== target.origin && !isLocalHost(req.hostname);
+          return req.origin !== targetParsed.origin && !isLocalHost(req.hostname);
+        } catch {
+          return false;
+        }
+      };
+      const isCrossOrigin = (url: string) => {
+        try {
+          const req = new URL(url);
+          return req.origin !== targetParsed.origin;
         } catch {
           return false;
         }
       };
 
       const resultPromise = (async () => {
+        try {
           browser = await chromium.launch({
             executablePath: chromiumPath,
             headless: true,
@@ -318,7 +327,7 @@ export const browserCheckTool = defineTool({
           );
 
           page = await context.newPage();
-          const rafFps = JSON.stringify(args.throttle_raf ?? null);
+          const rafFps = JSON.stringify(args.throttle_raf ?? 30);
           await page.addInitScript({ content: `(() => {
             const fps = ${rafFps};
             window.__browserCheckStubUses = [];
@@ -404,26 +413,37 @@ export const browserCheckTool = defineTool({
           });
 
           await page.route("**/*", async (route) => {
-            const url = route.request().url();
-            if (!isThirdParty(url)) return route.continue();
-            if (args.block_external) {
+            const req = route.request();
+            if (req.isNavigationRequest()) return route.continue();
+            const url = req.url();
+            if (req.resourceType() === "websocket") return route.continue();
+
+            const thirdParty = isThirdParty(url);
+            const crossOrigin = isCrossOrigin(url);
+
+            if (thirdParty && args.block_external) {
               intentionallyAborted.add(url);
               warnings.push(`Blocked third-party request: ${url}`);
               return route.abort();
             }
-            try {
-              const response = await route.fetch({ timeout: Math.min(2000, remaining()) });
-              return route.fulfill({ response });
-            } catch {
-              intentionallyAborted.add(url);
-              warnings.push(`Aborted slow third-party request (> 2 s): ${url}`);
-              return route.abort();
+
+            if (crossOrigin || thirdParty) {
+              try {
+                const response = await route.fetch({ timeout: Math.min(2000, remaining()) });
+                return route.fulfill({ response });
+              } catch {
+                intentionallyAborted.add(url);
+                warnings.push(`Aborted slow third-party request (> 2 s): ${url}`);
+                return route.abort();
+              }
             }
+
+            return route.continue();
           });
 
           await page.goto(targetUrl, { timeout: remaining(), waitUntil: "domcontentloaded" });
           try {
-            await page.waitForLoadState("load", { timeout: Math.min(3000, remaining()) });
+            await page.waitForLoadState("load", { timeout: Math.min(1500, remaining()) });
           } catch {
             const pending = [...inFlightRequests].slice(0, 3);
             warnings.push(`page 'load' did not finish (pending: ${pending.length ? pending.join(", ") : "unknown requests"})`);
@@ -431,30 +451,38 @@ export const browserCheckTool = defineTool({
           // Execute optional actions
           if (args.actions && args.actions.length > 0) {
             for (const action of args.actions) {
-              if (action.type === "click" && action.selector) {
-                try {
-                  await page.locator(action.selector).click({ timeout: Math.min(3000, remaining()), noWaitAfter: true });
-                } catch (err) {
-                  if (!/timeout|waiting for/i.test(String(err))) throw err;
-                  await page.locator(action.selector).click({ timeout: Math.min(3000, remaining()), noWaitAfter: true, force: true });
-                  warnings.push(`Retried click on ${action.selector} with force:true after actionability timeout`);
+              if (remaining() <= 500) {
+                warnings.push("Skipped remaining actions due to call budget limit");
+                break;
+              }
+              try {
+                if (action.type === "click" && action.selector) {
+                  try {
+                    await page.locator(action.selector).click({ timeout: Math.min(3000, remaining()), noWaitAfter: true });
+                  } catch (err) {
+                    if (!/timeout|waiting for/i.test(String(err))) throw err;
+                    await page.locator(action.selector).click({ timeout: Math.min(2000, remaining()), noWaitAfter: true, force: true });
+                    warnings.push(`Retried click on ${action.selector} with force:true after actionability timeout`);
+                  }
+                } else if (action.type === "type" && action.selector && action.text !== undefined) {
+                  try {
+                    await page.locator(action.selector).fill(action.text, { timeout: Math.min(3000, remaining()), noWaitAfter: true });
+                  } catch (err) {
+                    if (!/timeout|waiting for/i.test(String(err))) throw err;
+                    await page.locator(action.selector).fill(action.text, { timeout: Math.min(2000, remaining()), noWaitAfter: true, force: true });
+                    warnings.push(`Retried fill on ${action.selector} with force:true after actionability timeout`);
+                  }
+                } else if (action.type === "press") {
+                  if (action.selector && action.key) {
+                    await page.locator(action.selector).press(action.key, { timeout: Math.min(3000, remaining()), noWaitAfter: true });
+                  } else if (action.key) {
+                    await page.keyboard.press(action.key);
+                  }
+                } else if (action.type === "wait") {
+                  await page.waitForTimeout(Math.min(action.ms ?? 500, remaining()));
                 }
-              } else if (action.type === "type" && action.selector && action.text !== undefined) {
-                try {
-                  await page.locator(action.selector).fill(action.text, { timeout: Math.min(3000, remaining()), noWaitAfter: true });
-                } catch (err) {
-                  if (!/timeout|waiting for/i.test(String(err))) throw err;
-                  await page.locator(action.selector).fill(action.text, { timeout: Math.min(3000, remaining()), noWaitAfter: true, force: true });
-                  warnings.push(`Retried fill on ${action.selector} with force:true after actionability timeout`);
-                }
-              } else if (action.type === "press") {
-                if (action.selector && action.key) {
-                  await page.locator(action.selector).press(action.key, { timeout: Math.min(3000, remaining()), noWaitAfter: true });
-                } else if (action.key) {
-                  await page.keyboard.press(action.key);
-                }
-              } else if (action.type === "wait") {
-                await page.waitForTimeout(action.ms ?? 500);
+              } catch (err) {
+                warnings.push(`Action ${action.type}${action.selector ? ` on ${action.selector}` : ""} failed: ${trimChromiumError(err)}`);
               }
             }
           }
@@ -491,7 +519,23 @@ export const browserCheckTool = defineTool({
           // Sort console messages: errors first, then warnings, then others
           await collectStubUses(remaining());
           return buildResult(title, finalUrl, base64Data);
-        })();
+        } catch (err) {
+          warnings.push(`browser_check partial failure: ${trimChromiumError(err)}`);
+          let base64Data: string | undefined;
+          if (page && !page.isClosed()) {
+            try {
+              const screenshotBuffer = await page.screenshot({ type: "png", timeout: 500 });
+              base64Data = screenshotBuffer.toString("base64");
+            } catch {}
+          }
+          let title = "";
+          if (page && !page.isClosed()) {
+            try { title = await page.title(); } catch {}
+          }
+          await collectStubUses(100);
+          return buildResult(title, page?.url() ?? targetUrl!, base64Data);
+        }
+      })();
 
       let budgetTimer: ReturnType<typeof setTimeout> | undefined;
       const budgetResult = new Promise<ReturnType<typeof buildResult>>((resolve) => {
