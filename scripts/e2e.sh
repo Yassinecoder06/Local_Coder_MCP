@@ -311,4 +311,41 @@ curl --fail --silent --show-error -X DELETE "http://127.0.0.1:${ADMIN_PORT}/api/
 curl --fail --silent --show-error "http://127.0.0.1:${ADMIN_PORT}/api/status" \
   | jq -e '.workspaceSource == "env"' >/dev/null
 echo "Admin resets workspace roots to .env: ok"
+
+# Named services are managed through run/job, and workspace selection persists per client.
+service_port=18789
+service_start=$(json_response "$(rpc "$(jq -cn --arg command "node -e 'require(\"http\").createServer((_,res)=>res.end(\"service-e2e-ok\")).listen($service_port)'" --argjson port "$service_port" '{jsonrpc:"2.0",id:40,method:"tools/call",params:{name:"run",arguments:{service:"e2e",command:$command,port:$port}}}')")")
+echo "$service_start" | jq -e '.result and (.error | not)' >/dev/null
+service_list=$(json_response "$(rpc '{"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"job","arguments":{"action":"services"}}}')")
+echo "$service_list" | jq -e '(.result | tostring) | contains("e2e") and contains("healthy")' >/dev/null
+service_logs=$(json_response "$(rpc '{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"job","arguments":{"action":"logs","service":"e2e"}}}')")
+echo "$service_logs" | jq -e '(.result | tostring) | contains("service-e2e-ok")' >/dev/null
+service_stop=$(json_response "$(rpc '{"jsonrpc":"2.0","id":43,"method":"tools/call","params":{"name":"job","arguments":{"action":"stop","service":"e2e"}}}')")
+echo "$service_stop" | jq -e '.result and (.error | not)' >/dev/null
+echo "Named service start, health, logs, and stop: ok"
+
+# Each session gets its own MCP session while the client identity scopes workspace memory.
+gemini_headers="$temp_dir/gemini-headers"
+gemini_init=$(curl --fail --silent --show-error -H "$auth" -H "$accept" -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"gemini","version":"1.0"}}}' "$base" -D "$gemini_headers")
+gemini_session=$(awk 'tolower($1) == "mcp-session-id:" { gsub("\r", "", $2); print $2 }' "$gemini_headers" | tail -n 1)
+gemini_session_header=(); [[ -z "$gemini_session" ]] || gemini_session_header=(-H "Mcp-Session-Id: $gemini_session")
+gemini_rpc() { curl --fail --silent --show-error -H "$auth" -H "$accept" -H 'Content-Type: application/json' "${gemini_session_header[@]}" -d "$1" "$base"; }
+gemini_rpc '{"jsonrpc":"2.0","method":"notifications/initialized"}' >/dev/null
+gemini_rpc "$(jq -cn --arg path "$workspace_root" '{jsonrpc:"2.0",id:2,method:"tools/call",params:{name:"workspace_switch",arguments:{path:$path}}}')" >/dev/null
+chatgpt_switch=$(json_response "$(rpc "$(jq -cn --arg path "$projects_dir" '{jsonrpc:"2.0",id:44,method:"tools/call",params:{name:"workspace_switch",arguments:{path:$path}}}')")")
+echo "$chatgpt_switch" | jq -e '.result and (.error | not)' >/dev/null
+gemini_new_headers="$temp_dir/gemini-new-headers"
+gemini_new_init=$(curl --fail --silent --show-error -H "$auth" -H "$accept" -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"gemini","version":"1.0"}}}' "$base" -D "$gemini_new_headers")
+gemini_new_session=$(awk 'tolower($1) == "mcp-session-id:" { gsub("\r", "", $2); print $2 }' "$gemini_new_headers" | tail -n 1)
+gemini_new_header=(); [[ -z "$gemini_new_session" ]] || gemini_new_header=(-H "Mcp-Session-Id: $gemini_new_session")
+gemini_new_info=$(json_response "$(curl --fail --silent --show-error -H "$auth" -H "$accept" -H 'Content-Type: application/json' "${gemini_new_header[@]}" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"workspace_info","arguments":{}}}' "$base")")
+echo "$gemini_new_info" | jq -e --arg root "$workspace_root" '(.result | tostring) | contains($root)' >/dev/null
+echo "Workspace remembered independently for Gemini and ChatGPT: ok"
+
+unknown_tool=$(json_response "$(rpc '{"jsonrpc":"2.0","id":45,"method":"tools/call","params":{"name":"apply_patch","arguments":{}}}')")
+echo "$unknown_tool" | jq -e '(.result | tostring | ascii_downcase) | contains("edit_files")' >/dev/null
+echo "Unknown edit tool suggests edit_files: ok"
 echo "E2E smoke test passed."

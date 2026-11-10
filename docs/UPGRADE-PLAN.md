@@ -25,6 +25,8 @@ we borrow the parts that fit.
 
 ## Phases (owner in brackets)
 
+Web-chat audit follow-up (codex2): completed — per-client workspace memory and short Gemini call budgets; named persistent services and job actions; batch status/output reporting; `scripts.verify` preference; browser-check hardening; updated Herdr playbook and e2e coverage.
+
 ### Phase 1 — Spend fewer tool calls (highest value)
 1. **`exec` tool** [agy2]: a JS runtime in `node:worker_threads` with `resourceLimits`. It has `tools.<name>(args)` bound to our own handlers, `text()`, `image()` and `ALL_TOOLS`. There is no fs, network, require or timers. Limits: 64k source chars, 32 calls, 8 concurrent, 60 s wall time, 2 s CPU, 40 KB text, 4 images. No recursive `exec`. The risk is the strongest of any tool it calls (exec). Every inner call is logged to activity under the parent call.
 2. **`run` with `cmds[]`** [agy2]: up to 20 commands in one bash session, each with a labeled output and its own exit code. A non-zero exit doesn't stop the batch; the call's exit code is the first non-zero one.

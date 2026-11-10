@@ -245,6 +245,19 @@ The server can read and change files and run shell commands in mounted workspace
 - **Headless Chromium crashed:** use `browser_check` for page verification. Rebuild the Docker image to install the Chromium wrapper for raw headless Chromium commands.
 - **A folder is missing from the folder picker:** it is outside `MOUNT_DIR`. Set `MOUNT_DIR` to a parent folder in `.env` and run `make up`.
 - **Gemini says check the URL for `/mcp/plugins`:** use the main connector instead; plugin schemas are normalized now.
+- **Gemini reports `502` or `DEADLINE_EXCEEDED`:** keep each tool call under about 8 seconds. If the Cloudflare tunnel is flaky, switch its systemd service to HTTP/2:
+  ```sh
+  sudo systemctl edit cloudflared
+  ```
+  Add these lines to the override:
+  ```ini
+  [Service]
+  ExecStart=
+  ExecStart=/usr/local/bin/cloudflared tunnel --protocol http2 run
+  ```
+  Then run `sudo systemctl restart cloudflared`.
+- **Workspace jumped back:** active workspaces are remembered per MCP client. Switch workspace again in the client whose folder you want to change.
+- **Dev server dies:** start it as a named service with `run({ service: "dev", command: "npm run dev", port: 5173 })`; inspect and control it with `job` services/logs/stop/restart actions.
 
 ## License
 

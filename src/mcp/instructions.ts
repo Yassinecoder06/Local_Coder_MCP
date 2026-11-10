@@ -56,6 +56,12 @@ export async function buildInstructions(ctx: ToolContext): Promise<string> {
 `.trim());
 
   parts.push(`
+## Efficient tool use
+- Use `edit_files` for file changes; do not call `apply_patch` or `edit` as tools. For long commands or servers, start a `job` or named `run({ service, command, port })` and use short polls.
+- Keep each tool call short. `exec` results contain the return-shape cheat sheet; inspect it when you need structured results.
+`.trim());
+
+  parts.push(`
 ## Plugins
 Plugins are reachable here via \`plugin_tools\` then \`exec\` with \`plugins.<id>.<tool>()\`; blocked tools need the person to mark the plugin Trusted.
 `.trim());
