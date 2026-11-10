@@ -219,4 +219,21 @@ test("shell tools: run sync, run background, job status/output, run with stop_jo
     assert.match(exitPoll.summary, /Job .* finished \(exit code 7\)/);
     assert.equal(exitPoll.data.exit_code, 7);
   });
+
+  await t.test("job poll caps wait_ms by client call budget", async () => {
+    const res = await runTool.handler({ command: "sleep 2; echo done" }, env.ctx);
+    assert.equal(res.data.running, true);
+    const jobId = res.data.job_id;
+    assert.ok(jobId);
+
+    // Call budget 600ms -> max wait is 100ms
+    env.ctx.callBudgetMs = 600;
+    const startedAt = Date.now();
+    const pollRes = await jobTool.handler({ action: "poll", job_id: jobId, wait_ms: 5000 }, env.ctx);
+    const elapsed = Date.now() - startedAt;
+    assert.ok(elapsed < 400, `Expected elapsed < 400ms but was ${elapsed}ms`);
+    assert.equal(pollRes.data.running, true);
+    env.ctx.callBudgetMs = undefined;
+    await runTool.handler({ stop_job_id: jobId }, env.ctx);
+  });
 });

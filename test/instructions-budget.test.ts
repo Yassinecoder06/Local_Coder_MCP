@@ -9,7 +9,7 @@ import type { ToolContext } from "../src/core/types.js";
 import { createMemoryActivityLog } from "../src/core/activity.js";
 import { createSkillRegistry } from "../src/skills/index.js";
 import { createCommandRegistry } from "../src/commands/index.js";
-import type { AppConfig } from "../src/config.js";
+import { loadConfig, type AppConfig } from "../src/config.js";
 
 describe("Tool-Call Budget and Instructions Guidelines", () => {
   let tmpDir: string;
@@ -176,5 +176,19 @@ describe("Tool-Call Budget and Instructions Guidelines", () => {
     } finally {
       process.env.PATH = origPath;
     }
+  });
+
+  it("parses CLIENT_CALL_BUDGET_MS from simple string or JSON map", () => {
+    // Default
+    const defaultConfig = loadConfig({} as any);
+    assert.deepEqual(defaultConfig.clientCallBudgetsMs, { gemini: 8000 });
+
+    // Simple string
+    const simpleConfig = loadConfig({ CLIENT_CALL_BUDGET_MS: "gemini=7000;chatgpt=12000" } as any);
+    assert.deepEqual(simpleConfig.clientCallBudgetsMs, { gemini: 7000, chatgpt: 12000 });
+
+    // JSON map
+    const jsonConfig = loadConfig({ CLIENT_CALL_BUDGET_MS: '{"gemini": 6000, "claude": 15000}' } as any);
+    assert.deepEqual(jsonConfig.clientCallBudgetsMs, { gemini: 6000, claude: 15000 });
   });
 });

@@ -384,4 +384,30 @@ test("exec tool: code-mode isolated execution", async (t) => {
     assert.equal(res.images[0].data, "pluginBase64Image");
     assert.equal(res.images[0].mimeType, "image/png");
   });
+
+  await t.test("exec description includes return-shape cheat sheet", () => {
+    assert.match(execTool.description, /read → data\.files\[i\]\.content/);
+    assert.match(execTool.description, /run\(command\) → data\.output \/ data\.exit_code/);
+    assert.match(execTool.description, /run\(cmds\) → data\.items\[i\]\.output/);
+    assert.match(execTool.description, /job → data\.output/);
+    assert.match(execTool.description, /plugins → summary \/ data\.text/);
+  });
+
+  await t.test("exec default timeout obeys client call budget and returns informative error", async () => {
+    const mockCtx = {
+      ...env.ctx,
+      callBudgetMs: 1200,
+      clientKind: "gemini",
+      callTool: async () => new Promise<ToolResult>((r) => setTimeout(() => r({ ok: true, tool: "test", summary: "ok" }), 1200)),
+    };
+
+    // Tool call in worker takes longer than budget (1200ms - 500ms = 700ms)
+    const code = "await tools.test({});";
+    const res = await execTool.handler({ code }, mockCtx);
+    assert.equal(res.ok, false);
+    assert.match(
+      res.error ?? "",
+      /exec stopped at ~1s to stay inside gemini's tool time limit; start long commands with run \(it returns a job_id\) and poll with job/
+    );
+  });
 });

@@ -2,6 +2,8 @@
  * Owned by agy1. Manages stateful McpServer sessions with transparent recovery.
  */
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import type { Request, Response } from "express";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
@@ -17,7 +19,7 @@ import type { Board } from "../core/board.js";
 import type { PluginHub } from "../core/plugins.js";
 import type { CommandRegistry } from "../commands/registry.js";
 import type { SkillRegistry } from "../skills/registry.js";
-import { createWorkspace, resolveInitialWorkspace, resolveWorkspaces } from "../core/workspace.js";
+import { createWorkspace, isPathInsideRoots, resolveInitialWorkspace, resolveWorkspaces } from "../core/workspace.js";
 import type { ToolContext, ToolRisk } from "../core/types.js";
 import { annotationsFor, type ApprovalMode } from "../core/annotations.js";
 import { getSettings, updateSettings } from "../core/settings.js";
@@ -43,6 +45,7 @@ export interface McpSession {
   createdAt: number;
   lastAccessedAt: number;
   latestHeaders?: { userAgent?: string; origin?: string };
+  clientKind?: string;
 }
 
 export interface SessionManagerDependencies {
@@ -165,24 +168,55 @@ export class SessionManager {
     }
   }
 
-  public async buildSession(forcedSessionId?: string, clientInfo?: { name: string; version: string }): Promise<McpSession> {
+  private applyClientInfo(session: McpSession, clientInfo: { name: string; version?: string }): void {
+    if (!clientInfo?.name) return;
+    const clientKind = inferClient(clientInfo.name);
+    if (!clientKind || clientKind === "unknown") return;
+    session.clientKind = clientKind;
+    session.context.clientKind = clientKind;
+    if (this.deps.config.clientCallBudgetsMs?.[clientKind] !== undefined) {
+      session.context.callBudgetMs = this.deps.config.clientCallBudgetsMs[clientKind];
+    }
+    const settings = getSettings();
+    const clientWs = settings.lastWorkspaceByClient?.[clientKind];
+    if (clientWs) {
+      const effective = resolveWorkspaces(this.deps.config, settings);
+      try {
+        const abs = path.resolve(clientWs);
+        if (fs.existsSync(abs) && fs.statSync(abs).isDirectory() && isPathInsideRoots(abs, effective.roots)) {
+          if (session.context.workspace.active() !== abs) {
+            session.context.workspace.setActive(abs);
+          }
+        }
+      } catch {}
+    }
+  }
+
+  public async buildSession(forcedSessionId?: string, clientInfo?: { name: string; version?: string }): Promise<McpSession> {
     const sessionId = forcedSessionId || crypto.randomUUID();
     const settings = getSettings();
     const effective = resolveWorkspaces(this.deps.config, settings);
-    const clientKind = inferClient(clientInfo?.name);
+    const clientKind = clientInfo?.name ? inferClient(clientInfo.name) : undefined;
+    const clientLastWorkspace = clientKind && clientKind !== "unknown" ? settings.lastWorkspaceByClient?.[clientKind] : undefined;
     const initialWorkspace = resolveInitialWorkspace(
       effective.roots,
       effective.defaultWorkspace,
-      settings.lastWorkspaceByClient?.[clientKind] ?? settings.lastWorkspace
+      settings.lastWorkspace,
+      clientLastWorkspace
     );
     const workspace = createWorkspace(
       effective.roots,
       initialWorkspace,
       (newActive) => {
         const current = getSettings();
+        const activeClient = sessionRef?.clientKind ?? (clientKind && clientKind !== "unknown" ? clientKind : undefined);
+        const byClient = { ...(current.lastWorkspaceByClient ?? {}) };
+        if (activeClient && activeClient !== "unknown") {
+          byClient[activeClient] = newActive;
+        }
         void updateSettings({
           lastWorkspace: newActive,
-          lastWorkspaceByClient: { ...current.lastWorkspaceByClient, [clientKind]: newActive },
+          lastWorkspaceByClient: byClient,
         }).catch((err) => {
           console.warn("[workspace] Failed to persist lastWorkspace:", err);
         });
@@ -196,8 +230,8 @@ export class SessionManager {
       commands: this.deps.commands,
       activity: this.deps.activity,
       board: this.deps.board,
-      callBudgetMs: this.deps.config.clientCallBudgetsMs?.[clientKind],
-      clientKind,
+      callBudgetMs: clientKind ? this.deps.config.clientCallBudgetsMs?.[clientKind] : undefined,
+      clientKind: clientKind && clientKind !== "unknown" ? clientKind : undefined,
     };
 
     const transport = new StreamableHTTPServerTransport({
@@ -207,6 +241,10 @@ export class SessionManager {
         const existing = this.sessions.get(sid);
         if (existing) {
           existing.lastAccessedAt = Date.now();
+          const clientVersion = (existing.server as any).server?.getClientVersion?.() ?? (existing.server as any).getClientVersion?.();
+          if (clientVersion?.name) {
+            this.applyClientInfo(existing, clientVersion);
+          }
         }
       },
       onsessionclosed: (sid) => {
@@ -242,6 +280,7 @@ export class SessionManager {
       context,
       createdAt: Date.now(),
       lastAccessedAt: Date.now(),
+      clientKind: clientKind && clientKind !== "unknown" ? clientKind : undefined,
     };
     sessionRef = session;
 
@@ -289,16 +328,28 @@ export class SessionManager {
     if (isInit) {
       // Initialization creates a fresh session
       session = await this.buildSession(undefined, requestClientInfo ?? { name: inferredClientName, version: "" });
+      if (requestClientInfo) {
+        this.applyClientInfo(session, requestClientInfo);
+      }
     } else if (rawSid && this.sessions.has(rawSid)) {
       // Existing session
       session = this.sessions.get(rawSid)!;
+      if (requestClientInfo) {
+        this.applyClientInfo(session, requestClientInfo);
+      }
     } else if (rawSid && !this.sessions.has(rawSid)) {
       // Transparent recovery: re-create session with the requested stale session ID
       session = await this.buildSession(rawSid, { name: inferredClientName, version: "" });
+      if (requestClientInfo) {
+        this.applyClientInfo(session, requestClientInfo);
+      }
     } else {
       // Request without a session ID that is NOT initialize: serve with a fresh session
       const newSid = crypto.randomUUID();
       session = await this.buildSession(newSid, { name: inferredClientName, version: "" });
+      if (requestClientInfo) {
+        this.applyClientInfo(session, requestClientInfo);
+      }
     }
 
     const sid = session.sessionId;
