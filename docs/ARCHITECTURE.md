@@ -129,3 +129,9 @@ Roots are no longer env-only. Effective roots = `settings.workspaceRoots` if set
 - Admin API (agy1): `PUT /api/workspaces` body `{ roots: string[], defaultWorkspace?: string }` → `{ roots, defaultWorkspace, source }` (400 with a clear message for a path that is missing, not a dir, or outside the mounted area — say which `.env` line to change). `DELETE /api/workspaces` → back to env. `GET /api/fs/dirs?path=` → `{ path, parent?, dirs: { name, path, isGitRepo }[] }`, only inside allowed areas, hides dot-dirs and node_modules, max 500 entries — for the folder picker.
 - UI (codex1): Settings › Workspace roots becomes editable: list with remove + "set default", "Add folder" opens a folder picker (browse from the mount dirs, git repos marked), Save / Reset to .env. Note under it: "Only folders inside <mountDirs> are reachable. To reach others, set MOUNT_DIR in .env and run `make up`."
 - Infra (codex2): compose mounts `${MOUNT_DIR:-${PROJECTS_DIR}}` at the same path and passes `MOUNT_DIR`, `ALLOWED_ROOTS`; `.env.example`, setup.sh (ask once, default PROJECTS_DIR), README + SETUP docs; e2e: PUT a new root under the mount, a tool can list it, outside path → 400, DELETE resets.
+
+## Client call budget and workspace state
+Web clients may time out around 10 seconds; keep Gemini tool calls below about 8 seconds. Batch independent shell commands into one `run({ cmds: [...] })` call. Active workspace is stored per client, so switching one client's folder does not change another's.
+
+## Persistent services
+Start long-running development servers with `run({ service, command, port })`. They are named services managed by the MCP process; use `job` actions to list services, read logs, stop, or restart them. Do not background servers with `nohup` or `&`.
