@@ -32,8 +32,26 @@ describe("browser_check resilience", () => {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       if (req.url === "/hang") {
         res.end(`<!doctype html><html><head><title>Hang fixture</title><link rel="stylesheet" href="${stalledUrl}"></head><body><h1>Rendered before load</h1></body></html>`);
+      } else if (req.url === "/import-hang") {
+        res.end(`<!doctype html><html><head><title>CSS Import Hang</title><style>@import url("${stalledUrl}");</style></head><body><h1>Rendered with CSS @import</h1></body></html>`);
       } else if (req.url === "/pointer") {
         res.end(`<!doctype html><html><head><title>Pointer fixture</title></head><body><button id="play" onclick="document.title='Pointer clicked';this.requestPointerLock()">Play</button></body></html>`);
+      } else if (req.url === "/pointer-game") {
+        res.end(`<!doctype html><html><head><title>Pointer game fixture</title></head><body><canvas id="c" width="320" height="240"></canvas><button id="start" onclick="document.title='Game Started';document.getElementById('c').requestPointerLock();function loop(){requestAnimationFrame(loop);}requestAnimationFrame(loop);">Start</button></body></html>`);
+      } else if (req.url === "/webgl-busy") {
+        res.end(`<!doctype html><html><head><title>WebGL Busy fixture</title></head><body><canvas id="c" width="2048" height="2048"></canvas><button id="interact" onclick="document.title='Interacted'">Interact</button><script>
+          const c = document.getElementById("c"), gl = c.getContext("webgl") || c.getContext("experimental-webgl");
+          const p = new Uint8Array(4);
+          function loop() {
+            if (gl) {
+              gl.clearColor(0.2, 0.4, 0.6, 1);
+              gl.clear(gl.COLOR_BUFFER_BIT);
+              gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, p);
+            }
+            requestAnimationFrame(loop);
+          }
+          requestAnimationFrame(loop);
+        </script></body></html>`);
       } else {
         res.end(`<!doctype html><html><head><title>Busy canvas fixture</title></head><body><canvas id="game"></canvas><button id="play">Play</button><script>
           const c=document.querySelector('canvas'), x=c.getContext('2d');
@@ -88,5 +106,49 @@ describe("browser_check resilience", () => {
     assert.equal(result.ok, true);
     assert.equal(result.data?.title, "Busy canvas fixture");
     assert.ok(result.images?.length);
+  });
+
+  it("handles CSS @import hang without losing screenshot and stays within 8000ms budget", async (t) => {
+    if (!chromiumAvailable) return t.skip("Chromium is not installed");
+    const ctxWithBudget = { ...env.ctx, callBudgetMs: 8000 };
+    const t0 = Date.now();
+    const result = await browserCheckTool.handler({ url: `${appUrl}/import-hang`, wait_ms: 100 }, ctxWithBudget);
+    const elapsed = Date.now() - t0;
+    assert.equal(result.ok, true);
+    assert.equal(result.data?.title, "CSS Import Hang");
+    assert.ok(elapsed < 8000, `Expected < 8000ms, took ${elapsed}ms`);
+    assert.ok(result.images && result.images.length > 0, "Screenshot should be captured");
+    assert.ok(
+      (result.data as any).warnings.some((w: string) => w.includes("Aborted slow third-party request") || w.includes("page 'load' did not finish"))
+    );
+  });
+
+  it("handles canvas.requestPointerLock() followed by a game loop", async (t) => {
+    if (!chromiumAvailable) return t.skip("Chromium is not installed");
+    const result = await browserCheckTool.handler({
+      url: `${appUrl}/pointer-game`,
+      wait_ms: 100,
+      actions: [{ type: "click", selector: "#start" }],
+    }, env.ctx);
+    assert.equal(result.ok, true);
+    assert.equal(result.data?.title, "Game Started");
+    assert.ok((result.data as any).browserApiStubsUsed.includes("requestPointerLock"));
+    assert.ok(result.images && result.images.length > 0, "Screenshot should be captured");
+  });
+
+  it("handles WebGL busy loop with 2048x2048 canvas and readPixels", async (t) => {
+    if (!chromiumAvailable) return t.skip("Chromium is not installed");
+    const ctxWithBudget = { ...env.ctx, callBudgetMs: 8000 };
+    const t0 = Date.now();
+    const result = await browserCheckTool.handler({
+      url: `${appUrl}/webgl-busy`,
+      wait_ms: 100,
+      actions: [{ type: "click", selector: "#interact" }],
+    }, ctxWithBudget);
+    const elapsed = Date.now() - t0;
+    assert.equal(result.ok, true);
+    assert.equal(result.data?.title, "Interacted");
+    assert.ok(elapsed < 8000, `Expected < 8000ms, took ${elapsed}ms`);
+    assert.ok(result.images && result.images.length > 0, "Screenshot should be captured");
   });
 });
