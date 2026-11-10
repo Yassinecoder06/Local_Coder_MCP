@@ -4,7 +4,13 @@ import { escapeHtml, pageHeader, timeAgo, toast, copyText } from '../ui.js';
 let requests = [];
 let finishes = [];
 let plan = { workspace: '', todos: [], updatedAt: '' };
+let plans = [];
+let planMode = 'follow';
+let pinnedWorkspace = '';
+let pendingPlan;
 let currentView;
+
+const PLAN_CHOICE_KEY = 'local-coder.requests.plan-choice';
 
 export async function refreshOpenRequestCount() {
   const badge = document.querySelector('#open-request-count');
@@ -19,11 +25,13 @@ export async function refreshOpenRequestCount() {
 
 export async function renderRequests(view) {
   currentView = view;
-  [requests, finishes, plan] = await Promise.all([
+  readPlanChoice();
+  [requests, finishes, plans] = await Promise.all([
     request('/requests'),
     request('/finishes?limit=20'),
-    request('/plan'),
+    request('/plans'),
   ]);
+  plan = await request(planMode === 'pinned' ? `/plan?workspace=${encodeURIComponent(pinnedWorkspace)}` : '/plan');
   view.innerHTML = `${pageHeader('HUMAN IN THE LOOP', 'Requests', 'Review requested steps, follow the live plan, and see how each task was verified.')}
     <section class="board-section" aria-labelledby="requests-heading">
       <div class="section-heading"><div><p class="eyebrow">NEEDS YOUR ATTENTION</p><h2 id="requests-heading">Open requests</h2></div>
@@ -33,7 +41,10 @@ export async function renderRequests(view) {
         <div class="request-list" id="closed-request-list"></div></details>
     </section>
     <section class="board-section" aria-labelledby="plan-heading">
-      <div class="section-heading"><div><p class="eyebrow">CURRENT WORK</p><h2 id="plan-heading">Plan</h2></div><span class="plan-workspace" id="plan-workspace"></span></div>
+      <div class="section-heading plan-section-heading"><div><p class="eyebrow">CURRENT WORK</p><h2 id="plan-heading">Plan</h2></div>
+        <div class="plan-controls"><span class="plan-workspace" id="plan-workspace"></span><label class="sr-only" for="plan-project-picker">Plan project</label>
+          <select class="plan-project-picker" id="plan-project-picker"></select></div></div>
+      <button class="plan-new-activity" id="plan-new-activity" type="button" hidden></button>
       <div class="panel plan-panel" id="plan-panel"></div>
     </section>
     <section class="board-section" aria-labelledby="finishes-heading">
@@ -45,6 +56,8 @@ export async function renderRequests(view) {
   view.querySelector('#request-list').addEventListener('click', handleRequestAction);
   view.querySelector('#closed-request-list').addEventListener('click', handleRequestAction);
   view.querySelector('#request-list').addEventListener('click', handleCopy);
+  view.querySelector('#plan-project-picker').addEventListener('change', handlePlanChoice);
+  view.querySelector('#plan-new-activity').addEventListener('click', showPendingPlan);
 
   document.removeEventListener('board:event', onBoardEvent);
   document.addEventListener('board:event', onBoardEvent);
@@ -69,9 +82,16 @@ function handleBoardEvent(event) {
   } else if (event.type === 'finish') {
     finishes = [event.finish, ...finishes.filter((item) => item.id !== event.finish.id)].slice(0, 20);
     drawFinishes();
-  } else if (event.type === 'plan' && (!plan.workspace || event.workspace === plan.workspace)) {
-    plan = { ...plan, workspace: event.workspace, todos: event.todos, updatedAt: new Date().toISOString() };
+  } else if (event.type === 'plan') {
+    const updatedPlan = { workspace: event.workspace, todos: event.todos, updatedAt: new Date().toISOString() };
+    if (planMode === 'follow' || event.workspace === pinnedWorkspace) {
+      plan = updatedPlan;
+      pendingPlan = undefined;
+    } else {
+      pendingPlan = updatedPlan;
+    }
     drawPlan();
+    refreshPlans();
   }
 }
 
@@ -151,10 +171,96 @@ function handleCopy(event) {
 function drawPlan() {
   if (!currentView) return;
   currentView.querySelector('#plan-workspace').textContent = plan.workspace || '';
+  drawPlanPicker();
+  const activityButton = currentView.querySelector('#plan-new-activity');
+  if (pendingPlan && planMode === 'pinned') {
+    activityButton.innerHTML = `New activity in <strong>${escapeHtml(folderName(pendingPlan.workspace))}</strong> — show`;
+    activityButton.title = pendingPlan.workspace;
+    activityButton.hidden = false;
+  } else {
+    activityButton.hidden = true;
+  }
   const todos = Array.isArray(plan.todos) ? plan.todos : [];
   currentView.querySelector('#plan-panel').innerHTML = todos.length
     ? `<ol class="todo-list">${todos.map(renderTodo).join('')}</ol><p class="plan-updated">Updated ${timeAgo(plan.updatedAt)}</p>`
     : '<div class="board-empty"><strong>No plan yet</strong><p>Tasks will show here when a plan is created.</p></div>';
+}
+
+function readPlanChoice() {
+  planMode = 'follow';
+  pinnedWorkspace = '';
+  try {
+    const value = localStorage.getItem(PLAN_CHOICE_KEY);
+    if (value && value !== 'follow') {
+      planMode = 'pinned';
+      pinnedWorkspace = value;
+    }
+  } catch {
+    // Storage may be unavailable in private or restricted browser contexts.
+  }
+}
+
+function savePlanChoice(value) {
+  try {
+    localStorage.setItem(PLAN_CHOICE_KEY, value);
+  } catch {
+    // Keep the selection for this page session when storage is unavailable.
+  }
+}
+
+function drawPlanPicker() {
+  const picker = currentView?.querySelector('#plan-project-picker');
+  if (!picker) return;
+  const entries = [...plans];
+  if (plan.workspace && !entries.some((item) => item.workspace === plan.workspace)) {
+    entries.push({ ...plan, open: (plan.todos || []).filter((todo) => normalizeTodoStatus(todo?.status || todo?.state) !== 'done').length });
+  }
+  picker.innerHTML = `<option value="follow" ${planMode === 'follow' ? 'selected' : ''}>Follow latest</option>${entries.map((item) => {
+    const isOpen = Number(item.open) || 0;
+    return `<option value="${escapeHtml(item.workspace)}" title="${escapeHtml(item.workspace)}" ${planMode === 'pinned' && item.workspace === pinnedWorkspace ? 'selected' : ''}>${escapeHtml(folderName(item.workspace))} · ${isOpen ? `${isOpen} open` : 'done'}</option>`;
+  }).join('')}`;
+}
+
+async function handlePlanChoice(event) {
+  const choice = event.target.value;
+  pendingPlan = undefined;
+  if (choice === 'follow') {
+    planMode = 'follow';
+    pinnedWorkspace = '';
+    savePlanChoice('follow');
+    try { plan = await request('/plan'); } catch { /* Keep the current plan visible. */ }
+  } else {
+    planMode = 'pinned';
+    pinnedWorkspace = choice;
+    savePlanChoice(choice);
+    try { plan = await request(`/plan?workspace=${encodeURIComponent(choice)}`); } catch { /* Keep the current plan visible. */ }
+  }
+  drawPlan();
+}
+
+function showPendingPlan() {
+  if (!pendingPlan) return;
+  plan = pendingPlan;
+  pinnedWorkspace = pendingPlan.workspace;
+  planMode = 'pinned';
+  pendingPlan = undefined;
+  savePlanChoice(pinnedWorkspace);
+  drawPlan();
+}
+
+async function refreshPlans() {
+  if (!currentView) return;
+  try {
+    plans = await request('/plans');
+    drawPlanPicker();
+  } catch {
+    // Keep the current project list while the API is temporarily unavailable.
+  }
+}
+
+function folderName(workspace) {
+  const parts = String(workspace || '').split(/[\\/]/).filter(Boolean);
+  return parts.at(-1) || workspace || 'Unknown project';
 }
 
 function renderTodo(todo, index) {

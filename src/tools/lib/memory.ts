@@ -20,6 +20,10 @@ export interface AgentMemory {
   todos: TodoItem[];
 }
 
+export interface AgentPlan extends AgentMemory {
+  open: number;
+}
+
 export function getWorkspaceHash(workspaceRoot: string): string {
   return createHash("sha256").update(path.resolve(workspaceRoot)).digest("hex").slice(0, 16);
 }
@@ -42,6 +46,36 @@ export async function getAgentMemory(dataDir: string, workspaceRoot: string): Pr
       todos: [],
     };
   }
+}
+
+export async function listAgentPlans(dataDir: string, limit = 50): Promise<AgentPlan[]> {
+  const directory = path.join(dataDir, "agent");
+  let entries: string[];
+  try {
+    entries = await fs.readdir(directory);
+  } catch {
+    return [];
+  }
+
+  const plans = await Promise.all(entries.filter((entry) => entry.endsWith(".json")).map(async (entry) => {
+    try {
+      const parsed = JSON.parse(await fs.readFile(path.join(directory, entry), "utf-8"));
+      if (typeof parsed.workspace !== "string" || !Array.isArray(parsed.todos) || parsed.todos.length === 0) return undefined;
+      const todos = parsed.todos as TodoItem[];
+      return {
+        workspace: parsed.workspace,
+        updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : "",
+        todos,
+        open: todos.filter((todo) => todo?.status !== "done").length,
+      } satisfies AgentPlan;
+    } catch {
+      return undefined;
+    }
+  }));
+
+  return plans.filter((plan): plan is AgentPlan => Boolean(plan))
+    .sort((a, b) => (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0))
+    .slice(0, Math.max(0, limit));
 }
 
 export async function saveAgentMemory(

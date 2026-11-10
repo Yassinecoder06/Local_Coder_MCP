@@ -11,7 +11,7 @@ import { createSkillRegistry } from "../src/skills/index.js";
 import { createCommandRegistry } from "../src/commands/index.js";
 import { SessionManager } from "../src/http/session-manager.js";
 import { initSettings } from "../src/core/settings.js";
-import { saveAgentMemory } from "../src/tools/lib/memory.js";
+import { getWorkspaceHash, saveAgentMemory } from "../src/tools/lib/memory.js";
 import type { AppConfig } from "../src/config.js";
 
 describe("Admin Board & Request API Endpoints", () => {
@@ -228,6 +228,39 @@ describe("Admin Board & Request API Endpoints", () => {
     assert.equal(plan.todos.length, 2);
     assert.equal(plan.todos[0].text, "Step 1");
     assert.equal(plan.todos[1].status, "in_progress");
+  });
+
+  it("GET /api/plans orders non-empty plans and GET /api/plan defaults to the latest", async () => {
+    const olderWorkspace = path.join(tmpDir, "older-project");
+    const newerWorkspace = path.join(tmpDir, "newer-project");
+    const emptyWorkspace = path.join(tmpDir, "empty-project");
+    const agentDir = path.join(config.dataDir, "agent");
+    fs.mkdirSync(agentDir, { recursive: true });
+    const writeMemory = (workspace: string, updatedAt: string, todos: unknown[]) => {
+      fs.writeFileSync(path.join(agentDir, `${getWorkspaceHash(workspace)}.json`), JSON.stringify({ workspace, updatedAt, todos }));
+    };
+    writeMemory(olderWorkspace, "2026-01-01T00:00:00.000Z", [{ id: "old", text: "Finished", status: "done" }]);
+    writeMemory(newerWorkspace, "2026-01-02T00:00:00.000Z", [
+      { id: "new", text: "Working", status: "in_progress" },
+      { id: "done", text: "Finished", status: "done" },
+    ]);
+    writeMemory(tmpDir, "2025-12-31T00:00:00.000Z", [{ id: "base", text: "Previous plan", status: "done" }]);
+    writeMemory(emptyWorkspace, "2026-01-03T00:00:00.000Z", []);
+
+    const listResponse = await fetch(`${adminBaseUrl}/api/plans`, { headers: { host: "localhost" } });
+    assert.equal(listResponse.status, 200);
+    const plans = await listResponse.json();
+    assert.deepEqual(plans.map((item: { workspace: string }) => item.workspace), [newerWorkspace, olderWorkspace, tmpDir]);
+    assert.deepEqual(plans.map((item: { open: number }) => item.open), [1, 0, 0]);
+    assert.equal(plans[0].updatedAt, "2026-01-02T00:00:00.000Z");
+
+    const latestResponse = await fetch(`${adminBaseUrl}/api/plan`, { headers: { host: "localhost" } });
+    assert.equal(latestResponse.status, 200);
+    assert.equal((await latestResponse.json()).workspace, newerWorkspace);
+
+    const selectedResponse = await fetch(`${adminBaseUrl}/api/plan?workspace=${encodeURIComponent(olderWorkspace)}`, { headers: { host: "localhost" } });
+    assert.equal(selectedResponse.status, 200);
+    assert.equal((await selectedResponse.json()).workspace, olderWorkspace);
   });
 
   it("GET /api/board/stream streams events via SSE and emits request event", async () => {

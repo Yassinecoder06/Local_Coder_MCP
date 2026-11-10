@@ -347,6 +347,12 @@ textarea {
 .section-heading h2 { margin: 2px 0 0; font-size: 19px; letter-spacing: -.35px; }
 .section-heading .eyebrow { margin: 0; }
 .board-count, .plan-workspace { color: var(--muted); font-size: 11px; }
+.plan-controls { display: flex; min-width: 0; max-width: 62%; align-items: center; justify-content: flex-end; gap: 10px; }
+.plan-workspace { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-project-picker { width: min(220px, 32vw); min-width: 130px; padding: 6px 26px 6px 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text); font: inherit; font-size: 11px; }
+.plan-new-activity { margin: -5px 0 12px auto; padding: 5px 9px; border: 1px solid color-mix(in srgb, var(--accent), transparent 78%); border-radius: 7px; background: var(--accent-soft); color: var(--accent); font-size: 10px; text-align: left; }
+.plan-new-activity[hidden] { display: none; }
+.plan-new-activity strong { font-weight: 700; }
 .request-list, .finish-list { display: grid; gap: 12px; }
 .request-card, .finish-card, .plan-panel { min-width: 0; padding: 19px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: 0 2px 8px rgb(30 40 60 / 3%); }
 .request-card-heading, .finish-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
@@ -2216,6 +2222,7 @@ textarea {
 
   .topbar {
     padding: 0 16px;
+    overflow-x: clip;
   }
 
   .health-indicator {
@@ -2290,6 +2297,16 @@ textarea {
 }
 
 @media (max-width: 500px) {
+  .plan-section-heading { align-items: flex-start; flex-direction: column; gap: 9px; }
+
+  .plan-controls { width: 100%; max-width: 100%; justify-content: space-between; gap: 8px; }
+
+  .plan-workspace { flex: 1 1 auto; }
+
+  .plan-project-picker { width: min(52vw, 210px); min-width: 120px; }
+
+  .plan-new-activity { max-width: 100%; margin-left: 0; }
+
   .request-card,
   .finish-card,
   .plan-panel,

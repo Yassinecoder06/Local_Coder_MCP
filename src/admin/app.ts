@@ -19,7 +19,7 @@ import { getLocalBaseUrl, resolvePublicUrl } from "../http/public-url.js";
 import { detectIntegrations } from "../core/integrations.js";
 import toolModules from "../tools/index.js";
 import { ESSENTIAL_TOOLS } from "../mcp/server.js";
-import { getAgentMemory } from "../tools/lib/memory.js";
+import { getAgentMemory, listAgentPlans } from "../tools/lib/memory.js";
 import { loadRecipes } from "../plugins/recipes.js";
 import { parsePluginImport } from "../plugins/import.js";
 import {
@@ -696,14 +696,21 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
     }
   });
 
+  app.get("/api/plans", async (_req: Request, res: Response) => {
+    try {
+      res.json(await listAgentPlans(deps.config.dataDir, 50));
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   app.get("/api/plan", async (req: Request, res: Response) => {
     try {
       const settings = getSettings();
       const effectiveWs = resolveWorkspaces(deps.config, settings);
-      const workspace =
-        (req.query.workspace ? String(req.query.workspace) : undefined) ||
-        settings.lastWorkspace ||
-        effectiveWs.defaultWorkspace;
+      const requestedWorkspace = req.query.workspace ? String(req.query.workspace) : undefined;
+      const latestPlan = requestedWorkspace ? undefined : (await listAgentPlans(deps.config.dataDir, 1))[0];
+      const workspace = requestedWorkspace || latestPlan?.workspace || settings.lastWorkspace || effectiveWs.defaultWorkspace;
       const memory = await getAgentMemory(deps.config.dataDir, workspace);
       res.json({
         workspace,
