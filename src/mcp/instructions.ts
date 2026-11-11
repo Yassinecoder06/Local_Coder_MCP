@@ -28,7 +28,7 @@ export async function buildInstructions(ctx: ToolContext): Promise<string> {
   const integrations = await detectIntegrations();
   if (integrations.herdr.available) {
     parts.push(
-      "herdr is available: skill_load herdr to drive host terminals and CLI agents (agy, codex) for long or parallel work.\nuse `herdr agent list` + `herdr agent prompt <pane> \"<task>\" --wait` then `herdr agent read`; never `pane run` into panes running an agent unless the user asks; never stop/restart agents unless asked."
+      "herdr is available: skill_load herdr-web to drive host terminals and CLI agents (agy, codex) for long or parallel work.\nuse `herdr agent list` + `herdr agent prompt <pane> \"<task>\" --wait` then `herdr agent read`; never `pane run` into panes running an agent unless the user asks; never stop/restart agents unless asked."
     );
   }
 

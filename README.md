@@ -40,7 +40,7 @@ Local Coder turns any AI chat into a coding agent that works on **your real proj
 - **Activity log.** Every tool call, from every client, appears live in the admin UI, including the calls made inside `exec`.
 
 ### 🧩 Extend it in minutes
-- **Skills:** drop a folder with a `SKILL.md` in it, import it in the UI, or ask the chat to save one. Built-ins: herdr, UI design, code review, git workflow, Docker dev, skill authoring.
+- **Skills:** drop a folder with a `SKILL.md` in it, import it in the UI, or ask the chat to save one. Built-ins: herdr, herdr-web, UI design, code review, git workflow, Docker dev, skill authoring.
 - **Commands:** reusable task recipes such as `/review`, `/fix`, `/test`, `/ship`, `/verify` and `/delegate`. They show up as slash commands where the client supports them, and as `command_run` everywhere else.
 - **Plugins hub:** plug in other MCP servers (Playwright, Fetch, Memory, GitHub or your own) from the **Plugins** page. Their tools are served on a second address, so your main tool list stays small. Each tool can be switched on or off, and secrets are masked.
 - **Agent teams with herdr:** drive real terminal agents (Claude Code, Codex, Gemini CLI and others) on your machine. Hand a task to an agent and get its report back in one call.
@@ -124,7 +124,7 @@ description: Check a project before release.
 Inspect the working tree, run the project's checks, and summarize any release blockers.
 ```
 
-Built-in skills: `herdr`, `ui-design`, `code-review`, `git-workflow`, `skill-authoring`, and `docker-dev`. Setup mounts host skills when it detects a usable Herdr integration (see [Docker setup](docs/SETUP-Docker.md)).
+Built-in skills: `herdr`, `herdr-web`, `ui-design`, `code-review`, `git-workflow`, `skill-authoring`, and `docker-dev`. Setup mounts host skills when it detects a usable Herdr integration (see [Docker setup](docs/SETUP-Docker.md)).
 
 ## Commands
 

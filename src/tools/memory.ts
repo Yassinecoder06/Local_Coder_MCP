@@ -5,11 +5,25 @@
  * stored under DATA_DIR/agent/<workspace-hash>.json, never the user's workspace files.
  */
 import { execFile } from "node:child_process";
+import path from "node:path";
 import { z } from "zod";
-import { defineTool, type ToolModule } from "../core/types.js";
+import { defineTool, type ToolModule, type ToolContext } from "../core/types.js";
 import { ok, fail } from "../core/result.js";
 import { jobManager } from "./lib/jobs.js";
-import { getAgentMemory, saveAgentMemory, type TodoItem } from "./lib/memory.js";
+import {
+  getAgentMemory,
+  saveAgentMemory,
+  formatRelativeAge,
+  findNewerWorkspacePlans,
+  type TodoItem,
+  type NewerWorkspacePlan,
+} from "./lib/memory.js";
+
+function formatNewerPlanSuggestion(p: NewerWorkspacePlan, ctx: ToolContext): string {
+  const rel = ctx.workspace.display(p.workspace);
+  const name = !rel.startsWith("..") && rel !== "." ? rel : path.basename(p.workspace);
+  return `newer plan in ${name} (${p.age}) — workspace_switch there?`;
+}
 
 function runGit(args: string[], cwd: string): Promise<string> {
   return new Promise((resolve) => {
@@ -32,10 +46,10 @@ export const todoTool = defineTool({
   risk: "read",
   input: {
     action: z
-      .enum(["list", "set", "update"])
+      .enum(["list", "get", "set", "update", "clear"])
       .default("list")
       .optional()
-      .describe("Action to perform: 'list' returns items, 'set' replaces all items, 'update' changes status of an item by id"),
+      .describe("Action to perform: 'list'/'get' returns items, 'set' replaces all items, 'update' changes status of an item by id, 'clear' empties the plan"),
     items: z
       .array(
         z.object({
@@ -65,13 +79,54 @@ export const todoTool = defineTool({
       const memory = await getAgentMemory(ctx.config.dataDir, workspaceRoot);
       const action = args.action ?? "list";
 
-      if (action === "list") {
+      if (action === "clear") {
+        memory.todos = [];
+        await saveAgentMemory(ctx.config.dataDir, workspaceRoot, memory);
+        ctx.board?.emitPlan(workspaceRoot, []);
+        return ok("todo", "Cleared plan", { todos: [], updatedAt: memory.updatedAt });
+      }
+
+      if (action === "list" || action === "get") {
         const todos = memory.todos;
         const pending = todos.filter((t) => t.status === "pending").length;
         const inProgress = todos.filter((t) => t.status === "in_progress").length;
         const done = todos.filter((t) => t.status === "done").length;
-        const summary = `${todos.length} todo item(s) (${pending} pending, ${inProgress} in progress, ${done} done)`;
-        return ok("todo", summary, { todos });
+        const age = formatRelativeAge(memory.updatedAt);
+        const ageMs = Date.now() - (Date.parse(memory.updatedAt) || 0);
+        const isOlderThan12h = ageMs > 12 * 3600 * 1000;
+        const notAllDone = todos.length > 0 && todos.some((t) => t.status !== "done");
+        const isStale = isOlderThan12h && notAllDone;
+
+        const newerPlans = await findNewerWorkspacePlans(
+          ctx.config.dataDir,
+          workspaceRoot,
+          memory.updatedAt
+        );
+
+        const parts: string[] = [];
+        parts.push(
+          `${todos.length} todo item(s) (${pending} pending, ${inProgress} in progress, ${done} done, updated ${age})`
+        );
+
+        if (isStale) {
+          parts.push(
+            `Plan is older than 12 h and not all done (updated ${age}). Suggest todo({ action: "clear" }) or re-setting it.`
+          );
+        }
+
+        if (newerPlans.length > 0) {
+          parts.push(newerPlans.map((p) => formatNewerPlanSuggestion(p, ctx)).join(" "));
+        }
+
+        const summary = parts.join(" ");
+
+        return ok("todo", summary, {
+          todos,
+          updatedAt: memory.updatedAt,
+          age,
+          stale: isStale,
+          ...(newerPlans.length > 0 ? { newer_plans: newerPlans } : {}),
+        });
       }
 
       if (action === "set") {
@@ -140,6 +195,17 @@ export const resumeTool = defineTool({
 
       // 1. Todo plan
       const memory = await getAgentMemory(ctx.config.dataDir, workspaceRoot);
+      const planAge = formatRelativeAge(memory.updatedAt);
+      const ageMs = Date.now() - (Date.parse(memory.updatedAt) || 0);
+      const isOlderThan12h = ageMs > 12 * 3600 * 1000;
+      const notAllDone = memory.todos.length > 0 && memory.todos.some((t) => t.status !== "done");
+      const isStale = isOlderThan12h && notAllDone;
+
+      const newerPlans = await findNewerWorkspacePlans(
+        ctx.config.dataDir,
+        workspaceRoot,
+        memory.updatedAt
+      );
 
       // 2. Recent activity
       const activityLimit = args.limit ?? 15;
@@ -183,12 +249,24 @@ export const resumeTool = defineTool({
       const pending = memory.todos.filter((t) => t.status !== "done").length;
       const reqPart = openRequests.length > 0 ? `, ${openRequests.length} open user request(s)` : "";
       const finishPart = lastFinish ? `, last finish: ${lastFinish.verified ? "verified" : "unverified"}` : "";
-      const summary = `Active workspace: ${ctx.workspace.display(workspaceRoot)}. ${memory.todos.length} todo(s) (${pending} remaining), git branch: ${git.branch ?? "none"}, ${jobs.length} running job(s)${reqPart}${finishPart}.`;
+      const stalePart = isStale
+        ? ` Plan is older than 12 h and not all done (updated ${planAge}). Suggest todo({ action: "clear" }) or re-setting it.`
+        : "";
+      const newerPart =
+        newerPlans.length > 0
+          ? ` ${newerPlans.map((p) => formatNewerPlanSuggestion(p, ctx)).join(" ")}`
+          : "";
+      const summary = `Active workspace: ${ctx.workspace.display(workspaceRoot)}. ${memory.todos.length} todo(s) (${pending} remaining, updated ${planAge}), git branch: ${git.branch ?? "none"}, ${jobs.length} running job(s)${reqPart}${finishPart}.${stalePart}${newerPart}`;
 
       return ok("resume", summary, {
         workspace: ctx.workspace.display(workspaceRoot),
         workspace_absolute: workspaceRoot,
         todos: memory.todos,
+        updatedAt: memory.updatedAt,
+        plan_updated_at: memory.updatedAt,
+        plan_age: planAge,
+        stale_plan: isStale,
+        ...(newerPlans.length > 0 ? { newer_plans: newerPlans } : {}),
         recent_activity: recentActivity,
         git,
         running_jobs: jobs,

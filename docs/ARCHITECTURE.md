@@ -49,7 +49,7 @@ Essential profile (all others are `full` only). Names are final:
 | `resume` | read | resume ongoing work: workspace, todo plan, recent activity, git status, running jobs |
 | `browser_check` | read | headless browser verification (URL or local HTML): console logs, page errors, screenshot |
 
-Built-in skills in `skills/`: `herdr`, `ui-design`, `code-review`, `git-workflow`, `skill-authoring`.
+Built-in skills in `skills/`: `herdr`, `herdr-web`, `ui-design`, `code-review`, `git-workflow`, `skill-authoring`, `docker-dev`.
 Built-in commands in `commands/`: `review`, `test`, `fix`, `commit`, `explain`, `plan`, `scaffold`, `docs`, `refactor`, `deps`.
 
 ## Admin REST API on :8788 (agy1 implements, codex1 consumes) — JSON, prefix `/api`

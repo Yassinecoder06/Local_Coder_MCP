@@ -22,9 +22,9 @@ test("builtin skills and commands validation", async (t) => {
   const skillsRegistry = createSkillRegistry(config, settings);
   const commandsRegistry = createCommandRegistry(config);
 
-  await t.test("all 6 built-in skills are present and valid", async () => {
+  await t.test("all 7 built-in skills are present and valid", async () => {
     const skills = await skillsRegistry.list();
-    const expected = ["herdr", "ui-design", "code-review", "git-workflow", "skill-authoring", "docker-dev"];
+    const expected = ["herdr", "herdr-web", "ui-design", "code-review", "git-workflow", "skill-authoring", "docker-dev"];
 
     for (const name of expected) {
       const skill = skills.find((s) => s.name === name);
