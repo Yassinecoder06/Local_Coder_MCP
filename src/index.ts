@@ -21,6 +21,7 @@ import { initOAuthStore } from "./http/oauth-store.js";
 import { createSkillRegistry } from "./skills/index.js";
 import { createCommandRegistry } from "./commands/index.js";
 import { getDisplayHost } from "./http/public-url.js";
+import { startStateJanitor } from "./core/janitor.js";
 
 async function main() {
   const config = loadConfig();
@@ -46,6 +47,7 @@ async function main() {
     approvalMode: config.approvalMode,
     toolProfile: config.toolProfile,
   });
+  await startStateJanitor(config);
   initOAuthStore(config.dataDir);
 
   // 3b. Create board for user requests, finish reports, and live plan events

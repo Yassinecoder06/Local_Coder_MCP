@@ -19,7 +19,8 @@ import { getLocalBaseUrl, resolvePublicUrl } from "../http/public-url.js";
 import { detectIntegrations } from "../core/integrations.js";
 import toolModules from "../tools/index.js";
 import { ESSENTIAL_TOOLS } from "../mcp/server.js";
-import { getAgentMemory, listAgentPlans } from "../tools/lib/memory.js";
+import { clearAgentTodos, getAgentMemory, listAgentPlans } from "../tools/lib/memory.js";
+import { getJanitorLastRun } from "../core/janitor.js";
 import { loadRecipes } from "../plugins/recipes.js";
 import { parsePluginImport } from "../plugins/import.js";
 import {
@@ -113,6 +114,7 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
       workspaceSource: effectiveWs.source,
       mountDirs: deps.config.mountDirs ?? [],
       lastWorkspace: settings.lastWorkspace,
+      janitor: getJanitorLastRun(),
       integrations,
       openRequests,
       endpoints: {
@@ -696,9 +698,33 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
     }
   });
 
-  app.get("/api/plans", async (_req: Request, res: Response) => {
+  app.get("/api/plans", async (req: Request, res: Response) => {
     try {
-      res.json(await listAgentPlans(deps.config.dataDir, 50));
+      const all = req.query.all === "1";
+      const plans = await listAgentPlans(deps.config.dataDir, 50);
+      res.json(all ? plans.map((plan) => {
+        let orphaned = true;
+        try { orphaned = !fs.statSync(plan.workspace).isDirectory(); } catch { /* Missing workspace is orphaned. */ }
+        return { ...plan, orphaned };
+      })
+        : plans.filter((plan) => {
+          try { return fs.statSync(plan.workspace).isDirectory(); } catch { return false; }
+        }));
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.delete("/api/plans", async (req: Request, res: Response) => {
+    try {
+      const workspace = typeof req.query.workspace === "string" ? req.query.workspace.trim() : "";
+      if (!workspace || !path.isAbsolute(workspace)) {
+        res.status(400).json({ error: "An absolute workspace path is required." });
+        return;
+      }
+      await clearAgentTodos(deps.config.dataDir, workspace);
+      deps.board?.emitPlan(workspace, []);
+      res.json({ ok: true, workspace, todos: [] });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
@@ -709,7 +735,9 @@ export function createAdminApp(deps: AdminAppDependencies): Express {
       const settings = getSettings();
       const effectiveWs = resolveWorkspaces(deps.config, settings);
       const requestedWorkspace = req.query.workspace ? String(req.query.workspace) : undefined;
-      const latestPlan = requestedWorkspace ? undefined : (await listAgentPlans(deps.config.dataDir, 1))[0];
+      const latestPlan = requestedWorkspace ? undefined : (await listAgentPlans(deps.config.dataDir, 50)).find((plan) => {
+        try { return fs.statSync(plan.workspace).isDirectory(); } catch { return false; }
+      });
       const workspace = requestedWorkspace || latestPlan?.workspace || settings.lastWorkspace || effectiveWs.defaultWorkspace;
       const memory = await getAgentMemory(deps.config.dataDir, workspace);
       res.json({

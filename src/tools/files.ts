@@ -453,7 +453,8 @@ export const editFilesTool = defineTool({
           ctx.config,
           "edit_files",
           `edit_files: ${opsList.map((o) => o.op).join(", ")}`,
-          Array.from(affectedPaths)
+          Array.from(affectedPaths),
+          ctx.workspace.active()
         );
       }
 

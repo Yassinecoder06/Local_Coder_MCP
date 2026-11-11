@@ -22,6 +22,7 @@ export interface AgentMemory {
 
 export interface AgentPlan extends AgentMemory {
   open: number;
+  orphaned?: boolean;
 }
 
 export interface NewerWorkspacePlan {
@@ -88,12 +89,14 @@ export async function listAgentPlans(dataDir: string, limit = 50): Promise<Agent
       const parsed = JSON.parse(await fs.readFile(path.join(directory, entry), "utf-8"));
       if (typeof parsed.workspace !== "string" || !Array.isArray(parsed.todos) || parsed.todos.length === 0) return undefined;
       const todos = parsed.todos as TodoItem[];
-      return {
+      const plan: AgentPlan = {
         workspace: parsed.workspace,
         updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : "",
         todos,
         open: todos.filter((todo) => todo?.status !== "done").length,
+        ...(parsed.orphaned === true ? { orphaned: true } : {}),
       } satisfies AgentPlan;
+      return plan;
     } catch {
       return undefined;
     }
@@ -162,4 +165,10 @@ export async function saveAgentMemory(
     2
   );
   await fs.writeFile(memoryFile, data, "utf-8");
+}
+
+/** Clear a workspace plan using the same agent memory file used by the todo tool. */
+export async function clearAgentTodos(dataDir: string, workspaceRoot: string): Promise<void> {
+  const memory = await getAgentMemory(dataDir, workspaceRoot);
+  await saveAgentMemory(dataDir, workspaceRoot, { ...memory, todos: [] });
 }

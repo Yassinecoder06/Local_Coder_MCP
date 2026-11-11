@@ -234,6 +234,8 @@ describe("Admin Board & Request API Endpoints", () => {
     const olderWorkspace = path.join(tmpDir, "older-project");
     const newerWorkspace = path.join(tmpDir, "newer-project");
     const emptyWorkspace = path.join(tmpDir, "empty-project");
+    fs.mkdirSync(olderWorkspace, { recursive: true });
+    fs.mkdirSync(newerWorkspace, { recursive: true });
     const agentDir = path.join(config.dataDir, "agent");
     fs.mkdirSync(agentDir, { recursive: true });
     const writeMemory = (workspace: string, updatedAt: string, todos: unknown[]) => {

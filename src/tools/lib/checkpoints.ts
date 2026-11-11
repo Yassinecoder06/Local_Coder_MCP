@@ -17,6 +17,7 @@ export interface CheckpointFileSnapshot {
 
 export interface CheckpointSummary {
   id: string;
+  workspace?: string;
   created_at: string;
   tool: string;
   summary: string;
@@ -176,7 +177,8 @@ export async function createCheckpoint(
   config: AppConfig,
   tool: string,
   summary: string,
-  filePaths: string[]
+  filePaths: string[],
+  workspace?: string
 ): Promise<string | undefined> {
   if (!config.checkpoints) return undefined;
   if (filePaths.length === 0) return undefined;
@@ -206,6 +208,7 @@ export async function createCheckpoint(
   const index = await readIndex(config);
   index.checkpoints.unshift({
     id,
+    ...(workspace ? { workspace: path.resolve(workspace) } : {}),
     created_at: manifest.created_at,
     tool,
     summary,
