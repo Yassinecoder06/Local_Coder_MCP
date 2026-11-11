@@ -45,7 +45,7 @@ Essential profile (all others are `full` only). Names are final:
 | `command_run` | read | render a command with args → instructions the model must follow next |
 | `fetch_url` | read | HTTP GET a URL (docs, APIs) → text/markdown-ish, size capped |
 | `status` | read | server version, uptime, auth mode, tool profile, approval mode |
-| `todo` | read | keep a task plan in assistant scratch memory across reconnects (list, set, update) |
+| `todo` | read | keep a task plan in assistant scratch memory across reconnects (list, set, update, clear) |
 | `resume` | read | resume ongoing work: workspace, todo plan, recent activity, git status, running jobs |
 | `browser_check` | read | headless browser verification (URL or local HTML): console logs, page errors, screenshot |
 
@@ -72,6 +72,8 @@ Static UI served from `web/` at `/`. No auth (bound to host loopback), but rejec
 | `GET /api/settings` / `PATCH /api/settings` | settings object |
 | `GET /api/activity?limit=100` | `ActivityEntry[]` |
 | `GET /api/activity/stream` | SSE, `data: ActivityEntry` per event |
+| `GET /api/plans` | non-empty saved plans for existing workspaces, newest first |
+| `GET /api/plan?workspace=` | one workspace's plan; defaults to the latest plan or active workspace |
 | `GET /api/plugins` | `PluginSummary[]` |
 | `GET /api/plugins/recipes` | `PluginRecipe[]` |
 | `POST /api/plugins/import/preview` | body `{ text }` → `{ plugins, warnings }`; parses only and never starts/saves a plugin |
@@ -85,6 +87,18 @@ Static UI served from `web/` at `/`. No auth (bound to host loopback), but rejec
 | `DELETE /api/workspaces` | `{ roots, defaultWorkspace, source }` (resets to env) |
 | `GET /api/fs/dirs?path=` | `{ path, parent?, dirs: { name, path, isGitRepo }[] }` |
 Errors: `{ error: string }` with 4xx/5xx.
+
+## Result truncation
+
+MCP response text is capped by `MAX_OUTPUT_BYTES`. When a result exceeds the cap, the server keeps its head and tail with a `bytes omitted` marker so clients retain both the start and end. Use `job` output or `read` with line ranges to inspect the omitted middle.
+
+## Skill sources and shadowing
+
+Skills resolve by name in source priority order: user skills, active-workspace skills, `EXTRA_SKILLS_DIRS`, then built-ins. The first matching name wins. `skills_list` reports the selected source, making a host skill mounted through `EXTRA_SKILLS_DIRS` visible when it shadows a built-in. The built-in Herdr web-chat playbook is named `herdr-web` to avoid colliding with a host `herdr` skill.
+
+## Persisted workspace state janitor
+
+Startup cleanup removes stale references to deleted workspace folders from persisted workspace settings and checkpoint/plan state. The Admin `GET /api/plans` endpoint also filters plans whose workspace folder no longer exists. Clear a plan explicitly with `todo` action `clear` or **Admin → Requests → Clear plan**.
 
 ## Environment (codex2 documents in .env.example; parsed only in src/config.ts)
 `PORT=8787 ADMIN_PORT=8788 HOST ADMIN_HOST MCP_TOKEN PUBLIC_URL AUTH_MODE=both WORKSPACE_ROOTS DEFAULT_WORKSPACE DATA_DIR BUILTIN_SKILLS_DIR USER_SKILLS_DIR EXTRA_SKILLS_DIRS BUILTIN_COMMANDS_DIR USER_COMMANDS_DIR APPROVAL_MODE=minimal TOOL_PROFILE=essential SHELL_TIMEOUT_MS SHELL_SYNC_MS MAX_OUTPUT_BYTES CHECKPOINTS LOG_LEVEL`.
