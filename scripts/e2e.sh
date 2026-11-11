@@ -18,11 +18,13 @@ project="local-coder-e2e-$$"
 temp_dir=$(mktemp -d)
 fixture=$(mktemp "$projects_dir/.local-coder-e2e.XXXXXX")
 workspace_root=$(mktemp -d "$mount_dir/.local-coder-e2e-root.XXXXXX")
+plan_workspace_tmp=""
 headers="$temp_dir/headers"
 cleanup() {
   docker compose -p "$project" --env-file .env down --volumes --remove-orphans >/dev/null 2>&1 || true
   rm -f "$fixture"
   rm -rf "$workspace_root"
+  [[ -z "$plan_workspace_tmp" ]] || rm -rf "$plan_workspace_tmp"
   rm -rf "$temp_dir"
 }
 trap cleanup EXIT
@@ -140,6 +142,49 @@ call_tool() {
 tool_properties() {
   echo "$tools" | jq -c --arg name "$1" '.result.tools[] | select(.name == $name) | .inputSchema.properties // {}'
 }
+
+# Large results retain both ends of the output so a client can see what ran and
+# how it finished without requesting the entire command output.
+large_output=$(call_tool 46 run '{"command":"seq 1 40000"}')
+large_text=$(echo "$large_output" | jq -r '[.result.content[]? | select(.type == "text") | .text] | join("\n")')
+jq -e -n --arg text "$large_text" '
+  $text as $value
+  | ($value | index("1\\n")) as $head
+  | ($value | rindex("40000")) as $tail
+  | $head != null and $head < 512
+    and $tail != null and (($value | length) - $tail < 512)
+    and ($value | contains("bytes omitted"))
+' >/dev/null
+echo "MCP run keeps head and tail of large output: ok"
+
+skills_result=$(call_tool 47 skills_list '{}')
+echo "$skills_result" | jq -e '(.result | tostring) | contains("herdr-web")' >/dev/null
+herdr_web_result=$(call_tool 48 skill_load '{"name":"herdr-web"}')
+echo "$herdr_web_result" | jq -e '(.result | tostring | ascii_downcase) | contains("playbook")' >/dev/null
+echo "MCP herdr-web skill listing and load: ok"
+
+todo_set=$(call_tool 49 todo '{"action":"set","items":[{"id":"e2e","text":"temporary E2E plan"}]}')
+echo "$todo_set" | jq -e '.result and (.error | not) and (.result.isError != true)' >/dev/null
+todo_clear=$(call_tool 50 todo '{"action":"clear"}')
+echo "$todo_clear" | jq -e '.result and (.error | not) and (.result.isError != true)' >/dev/null
+resume_after_clear=$(call_tool 51 resume '{}')
+echo "$resume_after_clear" | jq -e '(.result.structuredContent.data.todos // []) | length == 0' >/dev/null
+echo "MCP todo clear removes the plan shown by resume: ok"
+
+# Save a plan under a temporary mounted project, remove that project, then
+# ensure the Admin plan index excludes the stale workspace path.
+plan_workspace_tmp=$(mktemp -d "$projects_dir/.local-coder-e2e-plan.XXXXXX")
+plan_switch=$(call_tool 52 workspace_switch "$(jq -cn --arg path "$plan_workspace_tmp" '{path:$path}')")
+echo "$plan_switch" | jq -e '.result and (.error | not) and (.result.isError != true)' >/dev/null
+stale_plan=$(call_tool 53 todo '{"action":"set","items":[{"id":"stale","text":"plan for deleted workspace"}]}')
+echo "$stale_plan" | jq -e '.result and (.error | not) and (.result.isError != true)' >/dev/null
+rm -rf "$plan_workspace_tmp"
+curl --fail --silent --show-error "$admin/api/plans" \
+  | jq -e --arg workspace "$plan_workspace_tmp" 'all(.[]; .workspace != $workspace)' >/dev/null
+plan_workspace_tmp=""
+back_to_projects=$(call_tool 54 workspace_switch "$(jq -cn --arg path "$projects_dir" '{path:$path}')")
+echo "$back_to_projects" | jq -e '.result and (.error | not) and (.result.isError != true)' >/dev/null
+echo "Admin plan index filters deleted workspace folders: ok"
 
 ask_properties=$(tool_properties ask_user)
 echo "$ask_properties" | jq -e 'has("command") and has("cwd") and has("purpose")' >/dev/null

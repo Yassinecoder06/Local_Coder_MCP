@@ -40,7 +40,7 @@ Local Coder turns any AI chat into a coding agent that works on **your real proj
 - **Activity log.** Every tool call, from every client, appears live in the admin UI, including the calls made inside `exec`.
 
 ### 🧩 Extend it in minutes
-- **Skills:** drop a folder with a `SKILL.md` in it, import it in the UI, or ask the chat to save one. Built-ins: herdr, UI design, code review, git workflow, Docker dev, skill authoring.
+- **Skills:** drop a folder with a `SKILL.md` in it, import it in the UI, or ask the chat to save one. Built-ins: herdr-web, UI design, code review, git workflow, Docker dev, skill authoring.
 - **Commands:** reusable task recipes such as `/review`, `/fix`, `/test`, `/ship`, `/verify` and `/delegate`. They show up as slash commands where the client supports them, and as `command_run` everywhere else.
 - **Plugins hub:** plug in other MCP servers (Playwright, Fetch, Memory, GitHub or your own) from the **Plugins** page. Their tools are served on a second address, so your main tool list stays small. Each tool can be switched on or off, and secrets are masked.
 - **Agent teams with herdr:** drive real terminal agents (Claude Code, Codex, Gemini CLI and others) on your machine. Hand a task to an agent and get its report back in one call.
@@ -124,7 +124,7 @@ description: Check a project before release.
 Inspect the working tree, run the project's checks, and summarize any release blockers.
 ```
 
-Built-in skills: `herdr`, `ui-design`, `code-review`, `git-workflow`, `skill-authoring`, and `docker-dev`. Setup mounts host skills when it detects a usable Herdr integration (see [Docker setup](docs/SETUP-Docker.md)).
+Built-in skills: `herdr-web`, `ui-design`, `code-review`, `git-workflow`, `skill-authoring`, and `docker-dev`. Setup mounts host skills when it detects a usable Herdr integration (see [Docker setup](docs/SETUP-Docker.md)).
 
 ## Commands
 
@@ -145,7 +145,7 @@ The **Trusted** switch permits non-read-only tools through `exec`; without it, o
 
 When setup finds the Herdr CLI and its live socket, it enables the host-tools Compose override automatically and prints `herdr integration: enabled`. The override mounts the CLI and Herdr config directory, sets the Herdr environment, and makes the `herdr` skill available. Otherwise it prints `herdr integration: disabled`; install/start Herdr and run setup again to enable it. Set `HERDR_BIN` in `.env` if the CLI is installed outside the detected path.
 
-This lets a connected AI client use the `herdr` skill to inspect and drive real host terminals and CLI agents. Herdr can send commands and input to those terminals, so protect the Local Coder access key and only connect clients you trust.
+This lets a connected AI client use the `herdr-web` skill to inspect and drive real host terminals and CLI agents. Herdr can send commands and input to those terminals, so protect the Local Coder access key and only connect clients you trust.
 
 ## Verification
 
@@ -239,6 +239,11 @@ The server can read and change files and run shell commands in mounted workspace
 - **Docker says `PROJECTS_DIR` is missing:** run `./scripts/setup.sh` or set an absolute `PROJECTS_DIR` in `.env`.
 - **Admin page does not load:** check `docker compose ps` and `docker compose logs mcp`; use `http://localhost:8788` on the Docker host.
 - **Client cannot connect:** web clients need an HTTPS tunnel; Quick Tunnel URLs appear automatically, while named tunnels and other providers need the matching `PUBLIC_URL`.
+- **Gemini or ChatGPT reports a `530` or `1033`:** the computer running Local Coder is off, asleep, or offline, so the tunnel cannot reach it. The computer must stay awake while serving. On Ubuntu/GNOME, keep it awake from a terminal with `systemd-inhibit --what=sleep:idle --why="Local Coder" sleep infinity`, or turn off automatic suspend in **Settings → Power**. Check `systemctl status cloudflared` and `docker compose ps` on the host.
+- **Laptop lid behavior:** optionally set `HandleLidSwitch=ignore` in `/etc/systemd/logind.conf` if the laptop should keep serving with its lid closed. Use this cautiously: a closed laptop can overheat, especially in a bag. Restart `systemd-logind` or reboot after changing the setting.
+- **`skill_load herdr` does not show the playbook:** load `herdr-web`. If `skills_list` shows which copy wins, a host skill from `EXTRA_SKILLS_DIRS` may shadow a built-in skill with the same name.
+- **An old plan appears in `resume`:** run `todo` with `action: "clear"`, or open **Admin → Requests** and choose **Clear plan**.
+- **Tool output was truncated:** Local Coder keeps the beginning and end of oversized results and marks the omitted bytes. Use job output or read the relevant ranges to inspect the middle.
 - **Files are owned by the wrong user:** confirm `HOST_UID` and `HOST_GID` in `.env` match `id -u` and `id -g`, then recreate the service.
 - **Quick Tunnel URL is missing:** wait a few seconds and check `docker compose --profile tunnel logs -f tunnel`.
 - **Tool-call limit per turn reached:** this is a client-side cap. Say “continue” to resume, and batch related commands to use fewer calls.
