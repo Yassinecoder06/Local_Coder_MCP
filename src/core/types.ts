@@ -18,6 +18,12 @@ import type { Workspace } from "./workspace.js";
  */
 export type ToolRisk = "read" | "write" | "exec";
 
+export interface TruncationRecord {
+  path: string;
+  keptBytes: number;
+  omittedBytes: number;
+}
+
 /** Stable result envelope returned (as structuredContent + short text) by every tool. */
 export interface ToolResult<T = unknown> {
   ok: boolean;
@@ -25,6 +31,8 @@ export interface ToolResult<T = unknown> {
   summary: string;
   data?: T;
   error?: string;
+  truncated?: boolean;
+  truncation?: TruncationRecord[];
   /** Optional images (e.g. browser screenshots) sent as MCP image content; never put in text/structuredContent. */
   images?: { data: string; mimeType: string }[];
 }

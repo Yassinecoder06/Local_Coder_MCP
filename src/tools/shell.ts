@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { defineTool, type ToolModule } from "../core/types.js";
-import { ok, fail } from "../core/result.js";
+import { ok, fail, truncateHeadTail } from "../core/result.js";
 import { jobManager, type RunResult } from "./lib/jobs.js";
 import { detectChecks, noChecksMessage, parseCheckErrors, type CheckResult } from "./lib/verify.js";
 
@@ -17,12 +17,6 @@ const CHROMIUM_MENTION_RE = /\b(chromium|chrome)\b/i;
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-function utf8Prefix(buffer: Buffer, maxBytes: number): string {
-  let text = buffer.subarray(0, Math.max(0, maxBytes)).toString("utf-8");
-  while (Buffer.byteLength(text, "utf-8") > maxBytes) text = text.slice(0, -1);
-  return text;
 }
 
 function utf8Tail(value: string, maxBytes: number): string {
@@ -93,8 +87,12 @@ function batchItems(
 
     const endLineAt = exitAt < 0 ? -1 : capturedOutput.indexOf("\n", exitAt);
     if (exitAt < 0 || endLineAt < 0) {
-      const outputBytes = Buffer.from(capturedOutput.slice(beginAt), "utf-8");
-      const output = utf8Prefix(outputBytes, remainingBytes);
+      const rawOutput = capturedOutput.slice(beginAt);
+      const outputBytes = Buffer.from(rawOutput, "utf-8");
+      const truncated = outputBytes.byteLength > remainingBytes;
+      const output = truncated
+        ? truncateHeadTail(rawOutput, remainingBytes, { headRatio: 0.4, tailRatio: 0.6 }).text
+        : rawOutput;
       remainingBytes = Math.max(0, remainingBytes - Buffer.byteLength(output, "utf-8"));
       const status = running ? `running (index ${index + 1}) in job ${jobId}` : "incomplete";
       if (running) runningIndex = index + 1;
@@ -109,9 +107,12 @@ function batchItems(
     if (stopOnError && exitCode !== 0) stopped = true;
 
     const outputEnd = endLineAt + 1;
-    const outputBytes = Buffer.from(capturedOutput.slice(beginAt, outputEnd), "utf-8");
+    const rawOutput = capturedOutput.slice(beginAt, outputEnd);
+    const outputBytes = Buffer.from(rawOutput, "utf-8");
     const truncated = outputBytes.byteLength > remainingBytes;
-    const output = utf8Prefix(outputBytes, remainingBytes);
+    const output = truncated
+      ? truncateHeadTail(rawOutput, remainingBytes, { headRatio: 0.4, tailRatio: 0.6 }).text
+      : rawOutput;
     remainingBytes = Math.max(0, remainingBytes - Buffer.byteLength(output, "utf-8"));
     cursor = outputEnd;
     return { cmd, exitCode, output, status: "completed", ...(truncated ? { truncated: true } : {}) };
@@ -345,11 +346,16 @@ export const runTool = defineTool({
           }
         }
 
+        let output = result.output;
+        if (output && Buffer.byteLength(output, "utf-8") > ctx.config.maxOutputBytes) {
+          output = truncateHeadTail(output, ctx.config.maxOutputBytes, { headRatio: 0.4, tailRatio: 0.6 }).text;
+        }
+
         return ok("run", summary, {
           command: args.command,
           cwd: ctx.workspace.display(cwd),
           exit_code: result.exit_code,
-          output: result.output,
+          output,
         });
       }
 
@@ -358,11 +364,16 @@ export const runTool = defineTool({
         runningSummary = `${runningSummary}. ${BROWSER_CHECK_TIP}`;
       }
 
+      let outputSoFar = result.output_so_far;
+      if (outputSoFar && Buffer.byteLength(outputSoFar, "utf-8") > ctx.config.maxOutputBytes) {
+        outputSoFar = truncateHeadTail(outputSoFar, ctx.config.maxOutputBytes, { headRatio: 0.4, tailRatio: 0.6 }).text;
+      }
+
       return ok("run", runningSummary, {
         job_id: result.job_id,
         running: true,
         pid: result.pid,
-        output_so_far: result.output_so_far,
+        output_so_far: outputSoFar,
         note: `Use 'job' tool with job_id "${result.job_id}" to check status or output, and 'run' with stop_job_id to terminate.`,
       });
     } catch (err) {

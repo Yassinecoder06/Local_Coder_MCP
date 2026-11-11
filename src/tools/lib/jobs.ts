@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import net from "node:net";
+import { truncateHeadTail } from "../../core/result.js";
 
 export interface Job {
   id: string;
@@ -472,8 +473,8 @@ class JobManager {
     const job = this.jobs.get(id);
     if (!job) throw new Error(`Job "${id}" not found`);
     const full = job.outputBuffer.join("");
-    if (limitBytes && limitBytes > 0 && full.length > limitBytes) {
-      return full.slice(-limitBytes);
+    if (limitBytes && limitBytes > 0 && Buffer.byteLength(full, "utf-8") > limitBytes) {
+      return truncateHeadTail(full, limitBytes, { headRatio: 0.4, tailRatio: 0.6 }).text;
     }
     return full;
   }
