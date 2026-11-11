@@ -1,5 +1,5 @@
 import { request, send } from '../api.js';
-import { escapeHtml, pageHeader, timeAgo, toast, copyText } from '../ui.js';
+import { escapeHtml, pageHeader, timeAgo, toast, copyText, confirmAction } from '../ui.js';
 
 let requests = [];
 let finishes = [];
@@ -43,7 +43,7 @@ export async function renderRequests(view) {
     <section class="board-section" aria-labelledby="plan-heading">
       <div class="section-heading plan-section-heading"><div><p class="eyebrow">CURRENT WORK</p><h2 id="plan-heading">Plan</h2></div>
         <div class="plan-controls"><span class="plan-workspace" id="plan-workspace"></span><label class="sr-only" for="plan-project-picker">Plan project</label>
-          <select class="plan-project-picker" id="plan-project-picker"></select></div></div>
+          <select class="plan-project-picker" id="plan-project-picker"></select><button class="button button-small" id="clear-plan" type="button" hidden>Clear plan</button></div></div>
       <button class="plan-new-activity" id="plan-new-activity" type="button" hidden></button>
       <div class="panel plan-panel" id="plan-panel"></div>
     </section>
@@ -57,6 +57,7 @@ export async function renderRequests(view) {
   view.querySelector('#closed-request-list').addEventListener('click', handleRequestAction);
   view.querySelector('#request-list').addEventListener('click', handleCopy);
   view.querySelector('#plan-project-picker').addEventListener('change', handlePlanChoice);
+  view.querySelector('#clear-plan').addEventListener('click', clearShownPlan);
   view.querySelector('#plan-new-activity').addEventListener('click', showPendingPlan);
 
   document.removeEventListener('board:event', onBoardEvent);
@@ -172,6 +173,8 @@ function drawPlan() {
   if (!currentView) return;
   currentView.querySelector('#plan-workspace').textContent = plan.workspace || '';
   drawPlanPicker();
+  const clearButton = currentView.querySelector('#clear-plan');
+  clearButton.hidden = !plan.workspace || !plan.todos?.length;
   const activityButton = currentView.querySelector('#plan-new-activity');
   if (pendingPlan && planMode === 'pinned') {
     activityButton.innerHTML = `New activity in <strong>${escapeHtml(folderName(pendingPlan.workspace))}</strong> — show`;
@@ -184,6 +187,28 @@ function drawPlan() {
   currentView.querySelector('#plan-panel').innerHTML = todos.length
     ? `<ol class="todo-list">${todos.map(renderTodo).join('')}</ol><p class="plan-updated">Updated ${timeAgo(plan.updatedAt)}</p>`
     : '<div class="board-empty"><strong>No plan yet</strong><p>Tasks will show here when a plan is created.</p></div>';
+}
+
+async function clearShownPlan() {
+  if (!plan.workspace) return;
+  const folder = folderName(plan.workspace);
+  if (!await confirmAction(`Clear the plan for ${folder}? This removes its todos from the saved plan.`, {
+    title: 'Clear this plan?', confirmLabel: 'Clear plan',
+  })) return;
+  const workspace = plan.workspace;
+  const button = currentView?.querySelector('#clear-plan');
+  if (button) button.disabled = true;
+  try {
+    await send(`/plans?workspace=${encodeURIComponent(workspace)}`, 'DELETE');
+    plan = { ...plan, todos: [], updatedAt: new Date().toISOString() };
+    toast('Plan cleared');
+    drawPlan();
+    await refreshPlans();
+  } catch (error) {
+    toast(error.message || 'Could not clear plan', true);
+  } finally {
+    if (button?.isConnected) button.disabled = false;
+  }
 }
 
 function readPlanChoice() {

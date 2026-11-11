@@ -74,6 +74,9 @@ export async function renderSettings(view, status) {
     <section class="panel setting-section roots-section"><div class="setting-copy"><h2>Workspace roots</h2>
       <p>Folders this server can access.</p>
       <p class="workspace-source">Current roots are <strong id="workspace-source-label">from ${workspaceSource === 'settings' ? 'settings' : '.env'}</strong>.</p></div>
+      <p class="workspace-source janitor-status">${statusData.janitor?.at
+        ? `${Number(statusData.janitor.cleaned) || 0} stale entries cleaned at ${new Date(statusData.janitor.at).toLocaleString()}`
+        : 'No cleanup run recorded yet.'}</p>
       <div class="workspace-roots-editor">
         <ul class="root-list" id="workspace-root-list"></ul>
         <div class="workspace-root-actions"><button class="button button-small" id="add-workspace-root">Add folder</button>
