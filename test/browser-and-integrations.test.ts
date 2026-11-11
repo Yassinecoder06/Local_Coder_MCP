@@ -173,7 +173,7 @@ describe("Integrations & Browser Check", () => {
         const instructions = await buildInstructions(mockCtx);
         assert.ok(
           instructions.includes(
-            "herdr is available: skill_load herdr to drive host terminals and CLI agents (agy, codex) for long or parallel work."
+            "herdr is available: skill_load herdr-web to drive host terminals and CLI agents (agy, codex) for long or parallel work."
           )
         );
       } finally {

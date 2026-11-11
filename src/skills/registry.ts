@@ -26,6 +26,7 @@ export interface SkillSummary {
   files: string[]; // relative paths inside dir, SKILL.md first
   enabled: boolean;
   editable: boolean; // true only for source=user
+  hides?: SkillSource[];
 }
 
 export interface Skill extends SkillSummary {
@@ -41,8 +42,8 @@ export interface SkillInput {
 
 export interface SkillRegistry {
   list(opts?: { includeDisabled?: boolean; workspaceRoot?: string }): Promise<SkillSummary[]>;
-  get(name: string, workspaceRoot?: string): Promise<Skill | undefined>;
-  readFile(name: string, relPath: string, workspaceRoot?: string): Promise<string>;
+  get(name: string, workspaceRoot?: string, source?: SkillSource): Promise<Skill | undefined>;
+  readFile(name: string, relPath: string, workspaceRoot?: string, source?: SkillSource): Promise<string>;
   /** Create or overwrite a user skill. */
   save(input: SkillInput): Promise<SkillSummary>;
   /** Import from a raw SKILL.md text (frontmatter included), e.g. paste/upload in UI. */

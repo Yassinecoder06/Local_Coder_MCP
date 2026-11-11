@@ -5,6 +5,7 @@ import path from "node:path";
 import { createTestEnvironment } from "./helpers.js";
 import { parseSkillFrontmatter } from "../src/skills/index.js";
 import { parseCommandFrontmatter } from "../src/commands/index.js";
+import { skillsListTool, skillLoadTool } from "../src/tools/skills.js";
 
 test("skills registry: frontmatter parsing, priority, save, import, remove, traversal rejection", async (t) => {
   const env = await createTestEnvironment();
@@ -134,6 +135,42 @@ Builtin body`
     assert.ok(found);
     assert.equal(found.source, "user");
     assert.equal(found.description, "User version overriding builtin");
+    assert.deepEqual(found.hides, ["builtin"]);
+  });
+
+  await t.test("skill shadowing visibility in skills_list, note on skill_load, and source argument", async () => {
+    // 1. skills_list tool marks shadowed entries
+    const listRes = await skillsListTool.handler({}, env.ctx);
+    assert.equal(listRes.ok, true);
+    assert.ok(listRes.data.entries.some((e: string) => e === "shadow-test (user; hides builtin)"));
+    assert.match(listRes.summary, /shadow-test \(user; hides builtin\)/);
+
+    // 2. skill_load default loads overriding version and appends note
+    const loadDefault = await skillLoadTool.handler({ name: "shadow-test" }, env.ctx);
+    assert.equal(loadDefault.ok, true);
+    assert.equal(loadDefault.data.skill.source, "user");
+    assert.match(loadDefault.data.skill.body, /User body override/);
+    assert.match(
+      loadDefault.data.skill.body,
+      /Note: A builtin copy of this skill is shadowed\. Load it with skill_load\(\{ name: "shadow-test", source: "builtin" \}\)\./
+    );
+    assert.equal(
+      loadDefault.data.note,
+      'Note: A builtin copy of this skill is shadowed. Load it with skill_load({ name: "shadow-test", source: "builtin" }).'
+    );
+    assert.match(loadDefault.summary, /Note: A builtin copy of this skill is shadowed/);
+
+    // 3. skill_load with source="builtin" loads shadowed builtin copy without note
+    const loadBuiltin = await skillLoadTool.handler({ name: "shadow-test", source: "builtin" }, env.ctx);
+    assert.equal(loadBuiltin.ok, true);
+    assert.equal(loadBuiltin.data.skill.source, "builtin");
+    assert.equal(loadBuiltin.data.skill.body, "Builtin body");
+    assert.equal(loadBuiltin.data.note, undefined);
+
+    // 4. skill_load with non-existent source fails cleanly
+    const loadExtra = await skillLoadTool.handler({ name: "shadow-test", source: "extra" }, env.ctx);
+    assert.equal(loadExtra.ok, false);
+    assert.match(loadExtra.error, /not found/i);
   });
 
   await t.test("remove user skill and setEnabled", async () => {

@@ -21,7 +21,13 @@ export const skillsListTool = defineTool({
         includeDisabled: args.include_disabled,
         workspaceRoot: ctx.workspace.active(),
       });
-      return ok("skills_list", `Found ${skills.length} skills`, { skills });
+      const entries = skills.map((s) => {
+        if (s.hides && s.hides.length > 0) {
+          return `${s.name} (${s.source}; hides ${s.hides.join(", ")})`;
+        }
+        return `${s.name} (${s.source})`;
+      });
+      return ok("skills_list", `Available skills: ${entries.join(", ")}`, { skills, entries });
     } catch (err) {
       return fail("skills_list", err);
     }
@@ -40,13 +46,17 @@ export const skillLoadTool = defineTool({
       .string()
       .optional()
       .describe("Optional relative path to a supplementary file inside the skill directory"),
+    source: z
+      .enum(["builtin", "extra", "workspace", "user"])
+      .optional()
+      .describe("Optional specific source to load from ('builtin', 'extra', 'workspace', 'user') when shadowed"),
   },
   handler: async (args, ctx) => {
     try {
       const active = ctx.workspace.active();
 
       if (args.file) {
-        const content = await ctx.skills.readFile(args.name, args.file, active);
+        const content = await ctx.skills.readFile(args.name, args.file, active, args.source);
         return ok("skill_load", `Loaded ${args.name}/${args.file} (${content.length} chars)`, {
           name: args.name,
           file: args.file,
@@ -54,12 +64,23 @@ export const skillLoadTool = defineTool({
         });
       }
 
-      const skill = await ctx.skills.get(args.name, active);
+      const skill = await ctx.skills.get(args.name, active, args.source);
       if (!skill) {
-        return fail("skill_load", `Skill "${args.name}" not found`);
+        return fail("skill_load", `Skill "${args.name}"${args.source ? ` (source: ${args.source})` : ""} not found`);
       }
 
-      return ok("skill_load", `Loaded skill "${skill.name}": ${skill.description}`, {
+      let body = skill.body;
+      let note: string | undefined;
+
+      if (!args.source && skill.hides && skill.hides.length > 0) {
+        const hidden = skill.hides.join(", ");
+        note = `Note: A ${hidden} copy of this skill is shadowed. Load it with skill_load({ name: "${skill.name}", source: "${skill.hides[0]}" }).`;
+        body = `${body}\n\n${note}`;
+      }
+
+      const summary = `Loaded skill "${skill.name}": ${skill.description}${note ? ` (${note})` : ""}`;
+
+      return ok("skill_load", summary, {
         skill: {
           name: skill.name,
           description: skill.description,
@@ -68,8 +89,10 @@ export const skillLoadTool = defineTool({
           files: skill.files,
           enabled: skill.enabled,
           editable: skill.editable,
-          body: skill.body,
+          body,
+          ...(skill.hides ? { hides: skill.hides } : {}),
         },
+        ...(note ? { note } : {}),
       });
     } catch (err) {
       return fail("skill_load", err);

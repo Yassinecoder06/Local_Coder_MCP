@@ -189,10 +189,15 @@ export function createSkillRegistry(
     return skillsMap;
   }
 
-  async function loadAllSkills(workspaceRoot?: string): Promise<Map<string, Skill>> {
+  interface ScannedSkill {
+    skill: Skill;
+    source: SkillSource;
+  }
+
+  async function loadAllSkillsGrouped(workspaceRoot?: string): Promise<Map<string, ScannedSkill[]>> {
     const activeWs = workspaceRoot ? path.resolve(workspaceRoot) : config.defaultWorkspace;
     const disabled = new Set(safeSettings.get().disabledSkills ?? []);
-    const merged = new Map<string, Skill>();
+    const grouped = new Map<string, ScannedSkill[]>();
 
     // Priority order: user -> workspace -> extra -> builtin
     const sources: Array<{ dir: string; source: SkillSource }> = [];
@@ -217,52 +222,85 @@ export function createSkillRegistry(
     for (const { dir, source } of sources) {
       const map = await scanSourceDir(dir, source);
       for (const [name, skill] of map.entries()) {
-        // Earlier source wins: never overwrite
-        if (!merged.has(name)) {
-          merged.set(name, {
+        const list = grouped.get(name) ?? [];
+        list.push({
+          skill: {
             ...skill,
             enabled: !disabled.has(name),
-          });
-        }
+          },
+          source,
+        });
+        grouped.set(name, list);
       }
     }
 
-    return merged;
+    return grouped;
   }
 
   return {
     async list(opts?: { includeDisabled?: boolean; workspaceRoot?: string }): Promise<SkillSummary[]> {
-      const skillsMap = await loadAllSkills(opts?.workspaceRoot);
+      const grouped = await loadAllSkillsGrouped(opts?.workspaceRoot);
       const list: SkillSummary[] = [];
 
-      for (const skill of skillsMap.values()) {
-        if (!opts?.includeDisabled && !skill.enabled) {
+      for (const versions of grouped.values()) {
+        if (versions.length === 0) continue;
+        const primary = versions[0];
+        if (!opts?.includeDisabled && !primary.skill.enabled) {
           continue;
         }
+
+        const hiddenSources: SkillSource[] = [];
+        for (let i = 1; i < versions.length; i++) {
+          const s = versions[i].source;
+          if (s !== primary.source && !hiddenSources.includes(s)) {
+            hiddenSources.push(s);
+          }
+        }
+
         list.push({
-          name: skill.name,
-          description: skill.description,
-          source: skill.source,
-          dir: skill.dir,
-          files: skill.files,
-          enabled: skill.enabled,
-          editable: skill.editable,
+          name: primary.skill.name,
+          description: primary.skill.description,
+          source: primary.skill.source,
+          dir: primary.skill.dir,
+          files: primary.skill.files,
+          enabled: primary.skill.enabled,
+          editable: primary.skill.editable,
+          ...(hiddenSources.length > 0 ? { hides: hiddenSources } : {}),
         });
       }
 
       return list.sort((a, b) => a.name.localeCompare(b.name));
     },
 
-    async get(name: string, workspaceRoot?: string): Promise<Skill | undefined> {
-      const skillsMap = await loadAllSkills(workspaceRoot);
-      return skillsMap.get(name);
+    async get(name: string, workspaceRoot?: string, source?: SkillSource): Promise<Skill | undefined> {
+      const grouped = await loadAllSkillsGrouped(workspaceRoot);
+      const versions = grouped.get(name);
+      if (!versions || versions.length === 0) return undefined;
+
+      if (source) {
+        const match = versions.find((v) => v.source === source);
+        return match ? { ...match.skill } : undefined;
+      }
+
+      const primary = versions[0];
+      const hiddenSources: SkillSource[] = [];
+      for (let i = 1; i < versions.length; i++) {
+        const s = versions[i].source;
+        if (s !== primary.source && !hiddenSources.includes(s)) {
+          hiddenSources.push(s);
+        }
+      }
+
+      return {
+        ...primary.skill,
+        ...(hiddenSources.length > 0 ? { hides: hiddenSources } : {}),
+      };
     },
 
-    async readFile(name: string, relPath: string, workspaceRoot?: string): Promise<string> {
-      const skillsMap = await loadAllSkills(workspaceRoot);
-      const skill = skillsMap.get(name);
+    async readFile(name: string, relPath: string, workspaceRoot?: string, source?: SkillSource): Promise<string> {
+      const skill = await this.get(name, workspaceRoot, source);
       if (!skill) {
-        throw new Error(`Skill "${name}" not found`);
+        throw new Error(`Skill "${name}"${source ? ` (source: ${source})` : ""} not found`);
       }
 
       const targetPath = path.resolve(skill.dir, relPath);
