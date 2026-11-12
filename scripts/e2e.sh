@@ -203,7 +203,8 @@ plan_e2e_rpc '{"jsonrpc":"2.0","method":"notifications/initialized"}' >/dev/null
 plan_root_switch=$(json_response "$(plan_e2e_rpc "$(jq -cn --arg path "$plan_e2e_root" '{jsonrpc:"2.0",id:66,method:"tools/call",params:{name:"workspace_switch",arguments:{path:$path}}}')")")
 echo "$plan_root_switch" | jq -e '.result and (.error | not)' >/dev/null
 plan_edit_one=$(json_response "$(plan_e2e_rpc "$(jq -cn --arg path "$plan_e2e_root/first.txt" '{jsonrpc:"2.0",id:61,method:"tools/call",params:{name:"edit_files",arguments:{ops:[{op:"write",path:$path,content:"first"}]}}}')")")
-echo "$plan_edit_one" | jq -e '(.result | tostring) | contains("No current plan")' >/dev/null
+# The nudge is shown once: on the switch into a folder without a plan, or on the first change.
+if ! { echo "$plan_root_switch"; echo "$plan_edit_one"; } | jq -s -e 'map(.result | tostring | contains("No current plan")) | any' >/dev/null; then echo "Plan nudge missing." >&2; exit 1; fi
 plan_edit_two=$(json_response "$(plan_e2e_rpc "$(jq -cn --arg path "$plan_e2e_root/second.txt" '{jsonrpc:"2.0",id:62,method:"tools/call",params:{name:"edit_files",arguments:{ops:[{op:"write",path:$path,content:"second"}]}}}')")")
 if echo "$plan_edit_two" | jq -e '(.result | tostring) | contains("No current plan")' >/dev/null; then echo "Plan nudge repeated in one session." >&2; exit 1; fi
 plan_set=$(json_response "$(plan_e2e_rpc '{"jsonrpc":"2.0","id":63,"method":"tools/call","params":{"name":"todo","arguments":{"action":"set","items":[{"id":"one","text":"First step"},{"id":"two","text":"Second step"},{"id":"three","text":"Third step"}]}}}')")
