@@ -7,6 +7,7 @@ import path from "node:path";
 import type { ActivityEntry } from "../../core/activity.js";
 import type { FinishEvidence } from "../../core/board.js";
 import type { ToolContext } from "../../core/types.js";
+import { getAgentMemory } from "./memory.js";
 
 function runGit(args: string[], cwd: string): Promise<string> {
   return new Promise((resolve) => {
@@ -159,6 +160,21 @@ export async function collectFinishEvidence(
   }
 
   const verified = warnings.length === 0;
+
+  // Plan warnings (do NOT affect verified)
+  try {
+    const memory = await getAgentMemory(ctx.config.dataDir, workspaceRoot);
+    if (!memory || !Array.isArray(memory.todos) || memory.todos.length === 0) {
+      warnings.push("no plan was recorded");
+    } else {
+      const unfinished = memory.todos.filter((t) => t?.status !== "done").length;
+      if (unfinished > 0) {
+        warnings.push(`plan has ${unfinished} unfinished steps — update todo before finishing`);
+      }
+    }
+  } catch {
+    warnings.push("no plan was recorded");
+  }
 
   return {
     evidence: {

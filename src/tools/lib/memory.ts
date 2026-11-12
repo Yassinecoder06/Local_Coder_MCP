@@ -7,6 +7,107 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import type { ToolContext, ToolResult } from "../../core/types.js";
+
+export const PLAN_NUDGE_HINT =
+  'No current plan for this work — call todo({ action: "set", items: [...] }) (3–7 steps) so the person can follow it in Admin → Requests.';
+
+export function isPlanCurrent(memory: AgentMemory, now = Date.now()): boolean {
+  if (!memory || !Array.isArray(memory.todos) || memory.todos.length === 0) return false;
+  const validTodos = memory.todos.filter((t) => t && typeof t === "object");
+  if (validTodos.length === 0) return false;
+  const allDone = validTodos.every((t) => t.status === "done");
+  if (allDone) return false;
+  const parsedTime = Date.parse(memory.updatedAt);
+  if (isNaN(parsedTime)) return false;
+  const ageMs = now - parsedTime;
+  if (ageMs > 2 * 3600 * 1000) return false;
+  return true;
+}
+
+const workspaceLastNudgedAt = new Map<string, number>();
+
+export function getSessionNudged(ctx: ToolContext): Set<string> {
+  if (!ctx.sessionNudged) {
+    ctx.sessionNudged = new Set<string>();
+  }
+  return ctx.sessionNudged;
+}
+
+export function shouldNudgeWorkspace(
+  ctx: ToolContext,
+  workspacePath: string,
+  now = Date.now()
+): boolean {
+  if (!ctx.board) return false;
+  const resolvedWs = path.resolve(workspacePath);
+  const sessionNudged = getSessionNudged(ctx);
+  if (sessionNudged.has(resolvedWs)) return false;
+  const lastNudge = workspaceLastNudgedAt.get(resolvedWs) ?? 0;
+  if (now - lastNudge < 30 * 60 * 1000) return false;
+  return true;
+}
+
+export function recordPlanNudge(
+  ctx: ToolContext,
+  workspacePath: string,
+  now = Date.now()
+): void {
+  const resolvedWs = path.resolve(workspacePath);
+  const sessionNudged = getSessionNudged(ctx);
+  sessionNudged.add(resolvedWs);
+  workspaceLastNudgedAt.set(resolvedWs, now);
+}
+
+export function resetPlanNudgeTracking(ctx?: ToolContext): void {
+  workspaceLastNudgedAt.clear();
+  if (ctx?.sessionNudged) {
+    ctx.sessionNudged.clear();
+  }
+}
+
+export async function maybeApplyPlanNudge(opts: {
+  toolName: string;
+  toolRisk?: string;
+  args: any;
+  result: ToolResult;
+  ctx: ToolContext;
+  sessionNudged?: Set<string>;
+}): Promise<boolean> {
+  try {
+    if (!opts.result.ok) return false;
+    if (!opts.ctx.board) return false;
+
+    // Never inside todo/resume/finish themselves or exec
+    if (["todo", "resume", "finish", "exec"].includes(opts.toolName)) return false;
+
+    // Changing tool: risk "write" or "exec" per tool definitions
+    const isChanging = opts.toolRisk === "write" || opts.toolRisk === "exec";
+    if (!isChanging) return false;
+
+    // Run with command that is not verify
+    if (opts.toolName === "run" && opts.args && opts.args.verify === true) {
+      return false;
+    }
+
+    const workspaceRoot = opts.ctx.workspace.active();
+    const now = Date.now();
+
+    if (!shouldNudgeWorkspace(opts.ctx, workspaceRoot, now)) return false;
+
+    // When active workspace plan is empty, all done, or not updated in the last 2 h
+    const memory = await getAgentMemory(opts.ctx.config.dataDir, workspaceRoot);
+    if (isPlanCurrent(memory, now)) return false;
+
+    recordPlanNudge(opts.ctx, workspaceRoot, now);
+    opts.result.summary = opts.result.summary
+      ? `${opts.result.summary}\n${PLAN_NUDGE_HINT}`
+      : PLAN_NUDGE_HINT;
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export interface TodoItem {
   id: string;
@@ -61,10 +162,25 @@ export async function getAgentMemory(dataDir: string, workspaceRoot: string): Pr
   try {
     const raw = await fs.readFile(memoryFile, "utf-8");
     const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      return {
+        workspace: workspaceRoot,
+        updatedAt: new Date().toISOString(),
+        todos: [],
+      };
+    }
+    const rawTodos = Array.isArray(parsed.todos) ? parsed.todos : [];
+    const todos: TodoItem[] = rawTodos
+      .filter((t: any) => t && typeof t === "object" && typeof t.text === "string")
+      .map((t: any, idx: number) => ({
+        id: typeof t.id === "string" ? t.id : String(idx + 1),
+        text: t.text,
+        status: t.status === "done" || t.status === "in_progress" ? t.status : "pending",
+      }));
     return {
-      workspace: parsed.workspace || workspaceRoot,
-      updatedAt: parsed.updatedAt || new Date().toISOString(),
-      todos: Array.isArray(parsed.todos) ? parsed.todos : [],
+      workspace: typeof parsed.workspace === "string" ? parsed.workspace : workspaceRoot,
+      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : new Date().toISOString(),
+      todos,
     };
   } catch {
     return {

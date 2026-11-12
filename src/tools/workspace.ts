@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { z } from "zod";
 import { defineTool, type ToolModule } from "../core/types.js";
 import { ok, fail } from "../core/result.js";
+import { getAgentMemory, saveAgentMemory, isPlanCurrent, PLAN_NUDGE_HINT, shouldNudgeWorkspace, recordPlanNudge } from "./lib/memory.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -136,6 +137,7 @@ export const workspaceSwitchTool = defineTool({
   },
   handler: async (args, ctx) => {
     try {
+      const previousActive = ctx.workspace.active();
       const target = args.path.trim();
       const newActive = ctx.workspace.setActive(target);
       const displayPath = ctx.workspace.display(newActive);
@@ -143,13 +145,54 @@ export const workspaceSwitchTool = defineTool({
 
       const stackStr = inspection.stack.length > 0 ? ` [stack: ${inspection.stack.join(", ")}]` : "";
       const branchStr = inspection.git.branch ? ` [git: ${inspection.git.branch}]` : "";
+      let summary = `Active workspace is now ${newActive}${stackStr}${branchStr}`;
 
-      return ok("workspace_switch", `Active workspace is now ${newActive}${stackStr}${branchStr}`, {
+      const prevResolved = path.resolve(previousActive);
+      const newResolved = path.resolve(newActive);
+      const isDescendant =
+        newResolved !== prevResolved &&
+        newResolved.startsWith(prevResolved.endsWith(path.sep) ? prevResolved : prevResolved + path.sep);
+
+      const now = Date.now();
+      const prevMemory = await getAgentMemory(ctx.config.dataDir, previousActive);
+      const prevAgeMs = now - (Date.parse(prevMemory.updatedAt) || 0);
+      const prevUpdatedInLast2h = prevAgeMs <= 2 * 3600 * 1000;
+      const prevNotAllDone = prevMemory.todos.length > 0 && prevMemory.todos.some((t) => t.status !== "done");
+
+      const newMemory = await getAgentMemory(ctx.config.dataDir, newActive);
+      const newHasNoCurrentPlan = !isPlanCurrent(newMemory, now);
+
+      let movedPlan: { steps: number; from: string; to: string } | undefined;
+
+      if (isDescendant && prevUpdatedInLast2h && prevNotAllDone && newHasNoCurrentPlan) {
+        const todosToMove = prevMemory.todos;
+        await saveAgentMemory(ctx.config.dataDir, newActive, {
+          workspace: newActive,
+          updatedAt: new Date().toISOString(),
+          todos: todosToMove,
+        });
+        await saveAgentMemory(ctx.config.dataDir, previousActive, {
+          workspace: previousActive,
+          updatedAt: new Date().toISOString(),
+          todos: [],
+        });
+        ctx.board?.emitPlan(newActive, todosToMove);
+        ctx.board?.emitPlan(previousActive, []);
+
+        summary += `. Moved your plan (${todosToMove.length} steps) from ${previousActive} to ${newActive}.`;
+        movedPlan = { steps: todosToMove.length, from: previousActive, to: newActive };
+      } else if (newHasNoCurrentPlan && shouldNudgeWorkspace(ctx, newActive, now)) {
+        recordPlanNudge(ctx, newActive, now);
+        summary += `\n${PLAN_NUDGE_HINT}`;
+      }
+
+      return ok("workspace_switch", summary, {
         active: newActive,
         display: displayPath,
         git: inspection.git,
         stack: inspection.stack,
         scripts: inspection.scripts,
+        ...(movedPlan ? { moved_plan: movedPlan } : {}),
       });
     } catch (err) {
       return fail("workspace_switch", err);

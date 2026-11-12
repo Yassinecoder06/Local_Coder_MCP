@@ -2,6 +2,7 @@ import { z } from "zod";
 import { defineTool, type ToolModule } from "../core/types.js";
 import { ok, fail } from "../core/result.js";
 import { runCodeMode } from "./lib/code-mode.js";
+import { PLAN_NUDGE_HINT } from "./lib/memory.js";
 
 export const execTool = defineTool({
   name: "exec",
@@ -61,12 +62,21 @@ export const execTool = defineTool({
         }
       : undefined;
 
+    let planNudged = false;
+    const callTool = async (toolName: string, toolArgs: Record<string, unknown>) => {
+      const toolRes = await ctx.callTool!(toolName, toolArgs);
+      if ((toolRes as any)?.__planNudgeApplied || (typeof toolRes.summary === "string" && toolRes.summary.includes(PLAN_NUDGE_HINT))) {
+        planNudged = true;
+      }
+      return toolRes;
+    };
+
     const budgetTimeout = ctx.callBudgetMs ? Math.max(100, ctx.callBudgetMs - 500) : undefined;
     const result = await runCodeMode({
       code: args.code,
       timeoutMs: args.timeout_ms ?? budgetTimeout,
       callableTools: callable,
-      callTool: ctx.callTool,
+      callTool,
       plugins: pluginList,
       callPluginTool,
     });
@@ -79,7 +89,10 @@ export const execTool = defineTool({
       return fail("exec", error);
     }
 
-    const summary = `Executed code with ${result.totalCalls} tool call${result.totalCalls === 1 ? "" : "s"}`;
+    let summary = `Executed code with ${result.totalCalls} tool call${result.totalCalls === 1 ? "" : "s"}`;
+    if (planNudged) {
+      summary += `\n${PLAN_NUDGE_HINT}`;
+    }
     return {
       ok: true,
       tool: "exec",

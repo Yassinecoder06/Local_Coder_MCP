@@ -59,6 +59,8 @@ export interface ToolContext {
   callTool?: (name: string, args: Record<string, unknown>) => Promise<ToolResult>;
   /** Names callable through callTool (enabled, not `exec`). */
   callableTools?: () => { name: string; description: string }[];
+  /** Workspaces nudged about missing/stale plan in this session (see src/tools/lib/memory.ts). */
+  sessionNudged?: Set<string>;
   /**
    * Plugin tools reachable from the main connector (via `exec` and `plugin_tools`). Wired by
    * src/mcp/server.ts from the PluginHub. Undefined when there is no hub. See src/core/plugins.ts.

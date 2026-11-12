@@ -11,6 +11,7 @@ import { getSettings } from "../core/settings.js";
 import type { ToolContext, ToolResult, PluginBridge } from "../core/types.js";
 import type { PluginHub, PluginTool } from "../core/plugins.js";
 import { buildInstructions } from "./instructions.js";
+import { maybeApplyPlanNudge } from "../tools/lib/memory.js";
 
 /** Final list of tools included in the 'essential' profile. All others require 'full'. */
 export const ESSENTIAL_TOOLS = new Set([
@@ -183,6 +184,7 @@ export async function createMcpServer(
   }
 
   let currentExtra: any = undefined;
+  ctx.sessionNudged = new Set<string>();
 
   // Provide ctx.callableTools
   ctx.callableTools = (): { name: string; description: string }[] => {
@@ -228,6 +230,19 @@ export async function createMcpServer(
         } else {
           try {
             res = await targetTool.handler(parsed.data as any, ctx);
+            if (res.ok) {
+              const nudged = await maybeApplyPlanNudge({
+                toolName: name,
+                toolRisk: targetTool.risk,
+                args: parsed.data,
+                result: res,
+                ctx,
+                sessionNudged: ctx.sessionNudged,
+              });
+              if (nudged) {
+                (res as any).__planNudgeApplied = true;
+              }
+            }
           } catch (err) {
             res = fail(name, err);
           }
@@ -407,6 +422,16 @@ export async function createMcpServer(
         let res: ToolResult;
         try {
           res = await tool.handler(args, ctx);
+          if (res.ok) {
+            await maybeApplyPlanNudge({
+              toolName: tool.name,
+              toolRisk: tool.risk,
+              args,
+              result: res,
+              ctx,
+              sessionNudged: ctx.sessionNudged,
+            });
+          }
         } catch (err) {
           res = fail(tool.name, err);
         } finally {

@@ -230,7 +230,7 @@ export const finishTool = defineTool({
       });
 
       const summaryText = verified
-        ? `Task completed and verified (id: ${report.id}): ${args.summary}`
+        ? `Task completed and verified (id: ${report.id}): ${args.summary}${warnings.length > 0 ? ` (warnings: ${warnings.join("; ")})` : ""}`
         : `Task finish recorded (id: ${report.id}) but NOT verified: ${warnings.join("; ")}`;
 
       return ok("finish", summaryText, {

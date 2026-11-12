@@ -241,6 +241,12 @@ test("human and finish tools: ask_user, user_request_status, finish", async (t) 
   });
 
   await t.test("finish: verified true when passing verify is newer than edit_files and no open requests", async () => {
+    // Set a completed plan so no plan warning is emitted
+    await todoTool.handler(
+      { action: "set", items: [{ text: "Fix bug", status: "done" }] },
+      env.ctx
+    );
+
     // 1. Record edit
     env.ctx.activity.record({
       tool: "edit_files",
@@ -281,6 +287,12 @@ test("human and finish tools: ask_user, user_request_status, finish", async (t) 
   });
 
   await t.test("finish: verified true when passing browser_check is newer than edit_files", async () => {
+    // Set a completed plan so no plan warning is emitted
+    await todoTool.handler(
+      { action: "set", items: [{ text: "UI update", status: "done" }] },
+      env.ctx
+    );
+
     // 1. Record edit
     env.ctx.activity.record({
       tool: "edit_files",
@@ -311,6 +323,52 @@ test("human and finish tools: ask_user, user_request_status, finish", async (t) 
     assert.deepEqual(res.data.warnings, []);
     assert.match(res.summary, /Task completed and verified/);
     assert.equal(res.data.report.evidence.browserCheck?.ok, true);
+  });
+
+  await t.test("finish: warns when no plan was recorded without changing verified", async () => {
+    // Clear the plan in the workspace
+    await todoTool.handler({ action: "clear" }, env.ctx);
+
+    const res = await finishTool.handler(
+      {
+        summary: "Task done with no plan recorded",
+      },
+      env.ctx
+    );
+
+    assert.equal(res.ok, true);
+    assert.equal(res.data.verified, true);
+    assert.ok(res.data.warnings.includes("no plan was recorded"));
+  });
+
+  await t.test("finish: warns when plan has unfinished steps without changing verified", async () => {
+    // Set a plan with unfinished steps
+    await todoTool.handler(
+      {
+        action: "set",
+        items: [
+          { text: "Done task", status: "done" },
+          { text: "Pending task", status: "pending" },
+          { text: "In progress task", status: "in_progress" },
+        ],
+      },
+      env.ctx
+    );
+
+    const res = await finishTool.handler(
+      {
+        summary: "Task done with unfinished plan items",
+      },
+      env.ctx
+    );
+
+    assert.equal(res.ok, true);
+    assert.equal(res.data.verified, true);
+    assert.ok(
+      res.data.warnings.some((w: string) =>
+        w.includes("plan has 2 unfinished steps — update todo before finishing")
+      )
+    );
   });
 
   await t.test("todo: emits plan on board on set and update", async () => {

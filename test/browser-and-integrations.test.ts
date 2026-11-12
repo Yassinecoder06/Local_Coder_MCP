@@ -149,7 +149,11 @@ describe("Integrations & Browser Check", () => {
       const instructions = await buildInstructions(mockCtx);
 
       assert.ok(instructions.includes("## Work like an agent"));
-      assert.ok(instructions.includes("plan multi-step work with todo"));
+      assert.ok(
+        instructions.includes(
+          "Start any task with 3+ steps by calling todo set (3–7 short steps); mark each step in_progress/done as you go; when you switch into a new project folder your plan moves with you; update the plan before finish"
+        )
+      );
       assert.ok(instructions.includes("after every change read diagnostics from edit_files"));
       assert.ok(instructions.includes("run run{verify:true} before claiming done"));
       assert.ok(instructions.includes("for UI or web work, use browser_check and look at the screenshot"));
