@@ -19,12 +19,14 @@ temp_dir=$(mktemp -d)
 fixture=$(mktemp "$projects_dir/.local-coder-e2e.XXXXXX")
 workspace_root=$(mktemp -d "$mount_dir/.local-coder-e2e-root.XXXXXX")
 plan_workspace_tmp=""
+plan_e2e_root=""
 headers="$temp_dir/headers"
 cleanup() {
   docker compose -p "$project" --env-file .env down --volumes --remove-orphans >/dev/null 2>&1 || true
   rm -f "$fixture"
   rm -rf "$workspace_root"
   [[ -z "$plan_workspace_tmp" ]] || rm -rf "$plan_workspace_tmp"
+  [[ -z "$plan_e2e_root" ]] || rm -rf "$plan_e2e_root"
   rm -rf "$temp_dir"
 }
 trap cleanup EXIT
@@ -185,6 +187,36 @@ plan_workspace_tmp=""
 back_to_projects=$(call_tool 54 workspace_switch "$(jq -cn --arg path "$projects_dir" '{path:$path}')")
 echo "$back_to_projects" | jq -e '.result and (.error | not) and (.result.isError != true)' >/dev/null
 echo "Admin plan index filters deleted workspace folders: ok"
+
+# Exercise the plan nudge and child-workspace plan move in a fresh MCP session.
+plan_e2e_root=$(mktemp -d "$projects_dir/.local-coder-e2e-plan-flow.XXXXXX")
+plan_e2e_child="$plan_e2e_root/child"
+mkdir -p "$plan_e2e_child"
+plan_e2e_headers="$temp_dir/plan-e2e-headers"
+plan_e2e_init=$(curl --fail --silent --show-error -H "$auth" -H "$accept" -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":60,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"e2e-plan","version":"1.0"}}}' "$base" -D "$plan_e2e_headers")
+plan_e2e_session=$(awk 'tolower($1) == "mcp-session-id:" { gsub("\r", "", $2); print $2 }' "$plan_e2e_headers" | tail -n 1)
+if [[ -z "$plan_e2e_session" ]]; then plan_e2e_session_header=(); else plan_e2e_session_header=(-H "Mcp-Session-Id: $plan_e2e_session"); fi
+plan_e2e_rpc() { curl --fail --silent --show-error -H "$auth" -H "$accept" -H 'Content-Type: application/json' "${plan_e2e_session_header[@]}" -d "$1" "$base"; }
+json_response "$plan_e2e_init" >/dev/null
+plan_e2e_rpc '{"jsonrpc":"2.0","method":"notifications/initialized"}' >/dev/null
+plan_root_switch=$(json_response "$(plan_e2e_rpc "$(jq -cn --arg path "$plan_e2e_root" '{jsonrpc:"2.0",id:66,method:"tools/call",params:{name:"workspace_switch",arguments:{path:$path}}}')")")
+echo "$plan_root_switch" | jq -e '.result and (.error | not)' >/dev/null
+plan_edit_one=$(json_response "$(plan_e2e_rpc "$(jq -cn --arg path "$plan_e2e_root/first.txt" '{jsonrpc:"2.0",id:61,method:"tools/call",params:{name:"edit_files",arguments:{ops:[{op:"write",path:$path,content:"first"}]}}}')")")
+echo "$plan_edit_one" | jq -e '(.result | tostring) | contains("No current plan")' >/dev/null
+plan_edit_two=$(json_response "$(plan_e2e_rpc "$(jq -cn --arg path "$plan_e2e_root/second.txt" '{jsonrpc:"2.0",id:62,method:"tools/call",params:{name:"edit_files",arguments:{ops:[{op:"write",path:$path,content:"second"}]}}}')")")
+if echo "$plan_edit_two" | jq -e '(.result | tostring) | contains("No current plan")' >/dev/null; then echo "Plan nudge repeated in one session." >&2; exit 1; fi
+plan_set=$(json_response "$(plan_e2e_rpc '{"jsonrpc":"2.0","id":63,"method":"tools/call","params":{"name":"todo","arguments":{"action":"set","items":[{"id":"one","text":"First step"},{"id":"two","text":"Second step"},{"id":"three","text":"Third step"}]}}}')")
+echo "$plan_set" | jq -e '.result and (.error | not)' >/dev/null
+plan_child_switch=$(json_response "$(plan_e2e_rpc "$(jq -cn --arg path "$plan_e2e_child" '{jsonrpc:"2.0",id:64,method:"tools/call",params:{name:"workspace_switch",arguments:{path:$path}}}')")")
+echo "$plan_child_switch" | jq -e '(.result | tostring) | contains("Moved your plan")' >/dev/null
+curl --fail --silent --show-error "$admin/api/plans" \
+  | jq -e --arg workspace "$plan_e2e_child" 'any(.[]; .workspace == $workspace and ([.todos[]? | select(.status != "done")] | length) == 3)' >/dev/null
+plan_clear=$(json_response "$(plan_e2e_rpc '{"jsonrpc":"2.0","id":65,"method":"tools/call","params":{"name":"todo","arguments":{"action":"clear"}}}')")
+echo "$plan_clear" | jq -e '.result and (.error | not)' >/dev/null
+rm -rf "$plan_e2e_root"
+plan_e2e_root=""
+echo "Plan nudge, child workspace plan move, Admin index, and clear: ok"
 
 ask_properties=$(tool_properties ask_user)
 echo "$ask_properties" | jq -e 'has("command") and has("cwd") and has("purpose")' >/dev/null

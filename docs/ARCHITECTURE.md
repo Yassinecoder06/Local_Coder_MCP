@@ -100,6 +100,10 @@ Skills resolve by name in source priority order: user skills, active-workspace s
 
 Startup cleanup removes stale references to deleted workspace folders from persisted workspace settings and checkpoint/plan state. The Admin `GET /api/plans` endpoint also filters plans whose workspace folder no longer exists. Clear a plan explicitly with `todo` action `clear` or **Admin → Requests → Clear plan**.
 
+## Plan nudge
+
+On the first changing tool call in a session and workspace, the server appends a reminder when there is no current plan (empty, all steps done, or not updated for two hours). It nudges at most once per session per workspace and observes a 30-minute per-workspace cool-down; `exec` also surfaces the reminder in its own summary when an inner call triggers it. Switching into a child folder moves a recent unfinished plan there. `finish` warns when no plan was recorded or when steps remain unfinished, without changing its `verified` result.
+
 ## Environment (codex2 documents in .env.example; parsed only in src/config.ts)
 `PORT=8787 ADMIN_PORT=8788 HOST ADMIN_HOST MCP_TOKEN PUBLIC_URL AUTH_MODE=both WORKSPACE_ROOTS DEFAULT_WORKSPACE DATA_DIR BUILTIN_SKILLS_DIR USER_SKILLS_DIR EXTRA_SKILLS_DIRS BUILTIN_COMMANDS_DIR USER_COMMANDS_DIR APPROVAL_MODE=minimal TOOL_PROFILE=essential SHELL_TIMEOUT_MS SHELL_SYNC_MS MAX_OUTPUT_BYTES CHECKPOINTS LOG_LEVEL`.
 If `MCP_TOKEN` is empty at startup, generate one and persist it in `DATA_DIR/token` (agy1).

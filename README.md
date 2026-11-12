@@ -166,6 +166,8 @@ If a client still hits its cap, say "continue": the model calls `resume` and car
 
 If the model needs you to run a command, it posts a request card on **Admin → Requests** (the sidebar badge shows how many are open). Use **Copy** to run the exact command in its stated folder, then choose **Mark done** or **Skip**; the server never runs it for you. The model can check your response with `user_request_status`. The same page shows a live Plan panel with its current todo list, and the reports from `finish` with their evidence. **Verified** means the server found a passing `verify` or `browser_check` and no open requests; otherwise the report includes warnings.
 
+The server reminds the model to record a plan when work starts without one, and carries that plan into a newly opened project folder. When work finishes, it warns if no plan was recorded or steps remain unfinished. You can follow the plan in **Admin → Requests**.
+
 ## Tools
 
 | Tool | What it does |
